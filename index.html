@@ -228,7 +228,7 @@ function onEmployeeData(resp) {
     const cols = resp.table.cols;
     const rows = resp.table.rows;
 
-    let iB=-1, iN=-1, iR=-1, iL=-1, iD=-1;
+    let iB=-1, iN=-1, iR=-1, iL=-1, iD=-1, iW=-1;
     const findIdx = (arr) => arr.forEach((c, i) => {
       const t = String(c?.label ?? c?.v ?? c?.f ?? '').trim();
       if (t==='지점') iB=i;
@@ -236,6 +236,7 @@ function onEmployeeData(resp) {
       else if (t==='직무'||t==='직급') iR=i;
       else if (t==='벨트'||t==='등급') iL=i;
       else if (t==='입사일'||t.includes('입사')) iD=i;
+      else if (t==='근무형태'||t.includes('근무형태')) iW=i;
     });
     findIdx(cols);
 
@@ -243,12 +244,12 @@ function onEmployeeData(resp) {
     if (iB<0 || iN<0) {
       for (let ri=0; ri<Math.min(rows.length,5); ri++) {
         const cells = (rows[ri].c||[]).map(c => ({label: String(c?.f||c?.v||'').trim()}));
-        iB=-1; iN=-1; iR=-1; iL=-1; iD=-1;
+        iB=-1; iN=-1; iR=-1; iL=-1; iD=-1; iW=-1;
         findIdx(cells);
         if (iB>=0 && iN>=0) { dataStart=ri+1; break; }
       }
     }
-    if (iB<0) iB=1; if (iN<0) iN=2; if (iR<0) iR=3; if (iL<0) iL=4; if (iD<0) iD=7;
+    if (iB<0) iB=1; if (iN<0) iN=2; if (iR<0) iR=3; if (iL<0) iL=4; if (iD<0) iD=7; if (iW<0) iW=5;
 
     const getStr = (row, i) => (i>=0 && row.c && row.c[i]) ? String(row.c[i].f||row.c[i].v||'').trim() : '';
     const parseDate = (cell) => {
@@ -270,12 +271,23 @@ function onEmployeeData(resp) {
       const beltRaw  = getStr(row, iL);
       const belt     = BELT_ORDER.includes(beltRaw) ? beltRaw : '실습생';
       const hireDate = iD>=0 ? parseDate(row.c && row.c[iD]) : '';
-      employees.push({ branch, name, role, belt, hire_date: hireDate });
+      const workType = getStr(row, iW);
+      employees.push({ branch, name, role, belt, hire_date: hireDate, work_type: workType });
     });
 
     renderDashboard();
     populateBranches();
     setStat('최종: ' + new Date().toLocaleTimeString('ko-KR'));
+
+    // 신규 직원 자동 스케줄 생성
+    const tmpSch = loadSchData(curY, curM);
+    let newAdded = false;
+    employees.forEach(emp => {
+      const key = emp.branch+'||'+emp.name;
+      if (!tmpSch[key]) { tmpSch[key]=mkEntry(emp); newAdded=true; }
+    });
+    if (newAdded) { schData=tmpSch; saveSchData(curY, curM, schData); }
+
     if (document.getElementById('view-schedule').classList.contains('active'))
       renderSchedule();
   } catch(e) {
@@ -350,7 +362,7 @@ function renderDashboard() {
     }).join('');
     body += `<tr style="background:${i%2?'#fff':'#FAFAFA'}">
       <td style="text-align:center;color:#aaa;font-size:12px">${i+1}</td>
-      <td style="font-weight:700;white-space:nowrap;font-size:13px">${br}</td>
+      <td style="font-weight:700;font-size:11px;max-width:80px;word-break:keep-all;white-space:normal" title="${br}">${br}</td>
       <td style="text-align:center;font-weight:800;font-size:15px;color:#4F46E5">${tot}</td>${cells}</tr>`;
   });
   const footC = BELT_ORDER.map(belt => {
@@ -378,31 +390,89 @@ function renderSchedule() {
 
 /* ── 이달 초기화 ── */
 function initMonth() {
-  if (!confirm(`${curY}년 ${curM}월 근무표를 현재 인원 기준으로 초기화합니다.\n기존 설정(출근시간·휴무일)은 유지됩니다.`)) return;
+  if (!confirm(`${curY}년 ${curM}월 근무표를 현재 인원 기준으로 초기화합니다.\n출근시간과 휴무일을 새로 생성합니다.`)) return;
   if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
 
-  const days = new Date(curY, curM, 0).getDate();
-  const weekendOffs = [];
-  for (let d=1; d<=days; d++) {
-    if (new Date(curY, curM-1, d).getDay() >= 5) weekendOffs.push(d);
-  }
+  const daysInMonth = new Date(curY, curM, 0).getDate();
+  const holidays = getHolidays(curY);
 
-  employees.forEach(emp => {
-    const key = emp.branch + '||' + emp.name;
-    const belt = emp.belt || '화이트';
-    if (schData[key]) {
-      schData[key].belt = belt;
-      schData[key].hire_date = emp.hire_date;
-    } else {
-      schData[key] = {
-        name: emp.name, branch: emp.branch, belt,
-        hire_date: emp.hire_date,
-        shift_start: DEFAULT_START,
-        shift_hours: BELT_HOURS[belt] || 8,
-        off_days: [...weekendOffs]
-      };
+  // 휴무 패턴: {JS요일(1=월...5=금): 월별 휴무 횟수}
+  const OFF_5DAY = {1:2, 2:2, 3:1, 4:0, 5:0};
+  const OFF_4DAY = {1:3, 2:2, 3:1, 4:1, 5:0};
+
+  const getDowDates = (dow) => {
+    const r = [];
+    for (let d=1; d<=daysInMonth; d++)
+      if (new Date(curY, curM-1, d).getDay()===dow) r.push(d);
+    return r;
+  };
+
+  const getWkHoliDates = () => {
+    const r = [];
+    for (let d=1; d<=daysInMonth; d++) {
+      const dow = new Date(curY, curM-1, d).getDay();
+      const hk = `${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      if (dow===0||dow===6||hk in holidays) r.push(d);
     }
+    return r;
+  };
+
+  const pickN = (arr, n, off) => {
+    const r=[];
+    for (let i=0; i<n&&i<arr.length; i++) r.push(arr[(i+off)%arr.length]);
+    return r;
+  };
+
+  const getStartTimes = (hours) => {
+    const r=[];
+    for (let h=10; h<=21-hours; h++) r.push(`${String(h).padStart(2,'0')}:00`);
+    return r.length?r:['10:00'];
+  };
+
+  const whdDates = getWkHoliDates();
+
+  // 지점별 그룹 (시간대 배분용)
+  const branchMap = {};
+  employees.forEach(e => { (branchMap[e.branch]=branchMap[e.branch]||[]).push(e); });
+  Object.values(branchMap).forEach(arr =>
+    arr.sort((a,b)=>(BELT_ORDER.indexOf(a.belt)??8)-(BELT_ORDER.indexOf(b.belt)??8))
+  );
+
+  let gIdx = 0;
+  employees.forEach(emp => {
+    const key = emp.branch+'||'+emp.name;
+    const wt = parseWorkType(emp.work_type||'');
+    const hours = wt.hours;
+    const daysPerWeek = wt.days;
+    const belt = emp.belt||'화이트';
+    const pat = daysPerWeek<=4 ? OFF_4DAY : OFF_5DAY;
+
+    // 평일 휴무 배분
+    const offDays = [];
+    for (let dow=1; dow<=5; dow++) {
+      const cnt = pat[dow]||0;
+      if (cnt>0) offDays.push(...pickN(getDowDates(dow), cnt, gIdx));
+    }
+
+    // 주말/공휴일 휴무 (목표 휴무일 수에서 평일 휴무 뺀 만큼)
+    const totalOff = Math.round(daysInMonth*(7-daysPerWeek)/7);
+    const wkOff = Math.max(0, totalOff-offDays.length);
+    offDays.push(...pickN(whdDates, wkOff, gIdx*2));
+
+    // 지점 내 순서에 따라 출근 시간 배분
+    const pos = (branchMap[emp.branch]||[]).indexOf(emp);
+    const starts = getStartTimes(hours);
+    const startTime = starts[pos%starts.length];
+
+    schData[key] = {
+      name:emp.name, branch:emp.branch, belt,
+      hire_date:emp.hire_date, work_type:emp.work_type||'',
+      shift_start:startTime, shift_hours:hours,
+      off_days:[...new Set(offDays)].sort((a,b)=>a-b)
+    };
+    gIdx++;
   });
+
   saveSchData(curY, curM, schData);
   dirty = false;
   buildTable();
@@ -427,10 +497,17 @@ function addHours(t, h) {
   const tot = hh*60 + mm + h*60;
   return String(~~(tot/60)).padStart(2,'0') + ':' + String(tot%60).padStart(2,'0');
 }
+function parseWorkType(str) {
+  const dm = (str||'').match(/주\s*(\d)\s*일/);
+  const hm = (str||'').match(/(\d+)\s*시간/);
+  return { days: dm?parseInt(dm[1]):5, hours: hm?parseInt(hm[1]):8 };
+}
+
 function mkEntry(emp) {
+  const wt = parseWorkType(emp.work_type||'');
   const belt = emp.belt || '화이트';
   return { name:emp.name, branch:emp.branch, belt, hire_date:emp.hire_date||'',
-           shift_start:DEFAULT_START, shift_hours:BELT_HOURS[belt]||8, off_days:[] };
+           work_type:emp.work_type||'', shift_start:DEFAULT_START, shift_hours:wt.hours, off_days:[] };
 }
 
 function buildTable() {
