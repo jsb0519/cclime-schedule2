@@ -316,8 +316,13 @@ function renderDashboard() {
   employees.forEach(e => {
     const belt = BELT_ORDER.includes(e.belt) ? e.belt : '실습생';
     const role = e.role && e.role.includes('매니저') ? 'M' : 'B';
-    const ym = e.hire_date ? e.hire_date.substring(0,7).replace('-','.') : '';
-    data[e.branch][belt].push({tag:[ym,e.name,role].filter(Boolean).join('.'), fg:BS[belt]?.fg||'#333'});
+    let prefix = '';
+    if (e.hire_date) {
+      const parts = e.hire_date.split('-');
+      prefix = String(parts[0]).slice(2) + '.' + parts[1];
+    }
+    const tag = prefix ? `${prefix}_${e.name}` : e.name;
+    data[e.branch][belt].push({tag, fg:BS[belt]?.fg||'#333'});
   });
   const bt = {};
   BELT_ORDER.forEach(l => { bt[l]=employees.filter(e=>(BELT_ORDER.includes(e.belt)?e.belt:'실습생')===l).length; });
