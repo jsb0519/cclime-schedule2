@@ -394,95 +394,153 @@ function initMonth() {
   if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
 
   const daysInMonth = new Date(curY, curM, 0).getDate();
-  const holidays = getHolidays(curY);
+  const ROT_INTERVAL = 2; // 출근시간 로테이션 주기 (일)
 
-  // 휴무 패턴: {JS요일(1=월...5=금): 전체 월 기준 휴무 횟수}
-  const OFF_5DAY = {1:2, 2:2, 3:1, 4:0, 5:0};
-  const OFF_4DAY = {1:3, 2:2, 3:1, 4:1, 5:0};
+  // 신규 입사자 첫 주 개인 휴무 수 (입사 요일: 0=일,1=월,...,6=토)
+  const FW5 = {0:0, 1:2, 2:2, 3:1, 4:0, 5:0, 6:0};
+  const FW4 = {0:0, 1:3, 2:2, 3:1, 4:1, 5:0, 6:0};
 
-  // 고르게 n개 선택: off로 시작 위치를 분산시켜 직원 간 휴무 겹침 최소화
-  const pickNEvenly = (arr, n, off) => {
-    if (!arr.length||n<=0) return [];
-    if (n>=arr.length) return [...arr];
-    const step = Math.ceil(arr.length/n);
-    const r=[];
-    for (let i=0; i<n; i++) r.push(arr[(i*step+off)%arr.length]);
-    return r;
-  };
+  // ══ PHASE 1: 휴무일 배정 — 일별 근무 인원 균등화 ══
 
-  const getStartTimes = (hours) => {
-    const r=[];
-    for (let h=10; h<=21-hours; h++) r.push(`${String(h).padStart(2,'0')}:00`);
-    return r.length?r:['10:00'];
-  };
+  // 날짜별 출근 인원 카운터 (전체 = 초기값)
+  const dayLoad = {};
+  for (let d = 1; d <= daysInMonth; d++) dayLoad[d] = 0;
 
-  // 지점별 그룹 (출근시간 배분용)
-  const branchMap = {};
-  employees.forEach(e => { (branchMap[e.branch]=branchMap[e.branch]||[]).push(e); });
-  Object.values(branchMap).forEach(arr =>
-    arr.sort((a,b)=>(BELT_ORDER.indexOf(a.belt)??8)-(BELT_ORDER.indexOf(b.belt)??8))
+  // 직원별 기초 정보 수집
+  const empData = [];
+  employees.forEach(emp => {
+    const wt = parseWorkType(emp.work_type || '');
+    const storeHours = wt.hours + 1; // 근무시간 + 1시간 휴게 = 매장 상주 시간
+    const daysPerWeek = wt.days;
+
+    let startDay = 1;
+    if (emp.hire_date && emp.hire_date.length >= 10) {
+      const [hy, hm, hd] = emp.hire_date.split('-').map(Number);
+      if (hy > curY || (hy === curY && hm > curM)) return; // 미입사 — 제외
+      if (hy === curY && hm === curM) startDay = hd;
+    }
+
+    const key = emp.branch + '||' + emp.name;
+    const availDays = [];
+    for (let d = startDay; d <= daysInMonth; d++) availDays.push(d);
+    availDays.forEach(d => dayLoad[d]++); // 이 직원이 출근 가능한 날 카운트
+
+    const totalOff = Math.round(availDays.length * (7 - daysPerWeek) / 7);
+    const slots = getSlots(storeHours);
+    const hireDow = new Date(curY, curM-1, startDay).getDay();
+
+    empData.push({ key, emp, startDay, availDays, totalOff, daysPerWeek, storeHours, slots, hireDow });
+  });
+
+  // 휴무 많은 직원 먼저 처리 → 균형 잡기 자유도 최대화
+  const sorted = [...empData].sort((a, b) => b.totalOff - a.totalOff);
+  const offMap = {};
+  empData.forEach(({ key }) => offMap[key] = new Set());
+
+  sorted.forEach(({ key, startDay, availDays, totalOff, daysPerWeek, hireDow }) => {
+    if (totalOff <= 0) return;
+
+    // 신규 입사자: 첫 주(입사일 ~ 그 주 일요일) 특별 규칙
+    let firstWeekDays = [], restDays = [...availDays];
+    if (startDay > 1) {
+      const daysToSun = hireDow === 0 ? 0 : (7 - hireDow);
+      const fwEnd = Math.min(daysInMonth, startDay + daysToSun);
+      firstWeekDays = availDays.filter(d => d <= fwEnd);
+      restDays      = availDays.filter(d => d >  fwEnd);
+
+      const fwCnt = (daysPerWeek <= 4 ? FW4 : FW5)[hireDow] || 0;
+      // 첫 주: 출근자가 많은 날부터 휴무 배정 (가장 여유 있는 날)
+      [...firstWeekDays].sort((a, b) => dayLoad[b] - dayLoad[a])
+        .slice(0, Math.min(fwCnt, firstWeekDays.length))
+        .forEach(d => { offMap[key].add(d); dayLoad[d]--; });
+    }
+
+    // 나머지 기간: 요일별 비례 배분 + 출근 부하 높은 날 우선 선택
+    const candidates = restDays;
+    const remain = Math.max(0, totalOff - offMap[key].size);
+    if (!remain || !candidates.length) return;
+
+    // 요일별 날짜 분류
+    const byDow = {};
+    for (let i = 0; i <= 6; i++) byDow[i] = [];
+    candidates.forEach(d => byDow[new Date(curY, curM-1, d).getDay()].push(d));
+
+    // 요일별 배분 수 (날짜 수 비례)
+    const dc = {};
+    const rems = [];
+    let asgn = 0;
+    for (let dow = 0; dow <= 6; dow++) {
+      if (!byDow[dow].length) { dc[dow] = 0; continue; }
+      const ex = remain * byDow[dow].length / candidates.length;
+      dc[dow] = Math.floor(ex); asgn += dc[dow];
+      rems.push({ dow, r: ex - dc[dow] });
+    }
+    rems.sort((a, b) => b.r - a.r);
+    let ex2 = remain - asgn;
+    for (const { dow } of rems) {
+      if (!ex2) break;
+      if (byDow[dow].length > dc[dow]) { dc[dow]++; ex2--; }
+    }
+
+    // 각 요일에서 출근 부하 높은 날 순으로 휴무 선택
+    for (let dow = 0; dow <= 6; dow++) {
+      if (!dc[dow] || !byDow[dow].length) continue;
+      [...byDow[dow]].sort((a, b) => dayLoad[b] - dayLoad[a])
+        .slice(0, dc[dow])
+        .forEach(d => { offMap[key].add(d); dayLoad[d]--; });
+    }
+  });
+
+  // ══ PHASE 2: 출근시간 배정 — 2일 로테이션 + 당일 스태거 ══
+
+  const bIdx = b => { const i = BELT_ORDER.indexOf(b); return i >= 0 ? i : 8; };
+
+  // 지점별 직원 순번 확정 (벨트 순 정렬)
+  const branchEmpList = {};
+  empData.forEach(({ key, emp }) => {
+    (branchEmpList[emp.branch] = branchEmpList[emp.branch] || []).push({ key, belt: emp.belt || '화이트' });
+  });
+  Object.values(branchEmpList).forEach(arr => arr.sort((a, b) => bIdx(a.belt) - bIdx(b.belt)));
+
+  const baseOffsetMap = {}; // key -> 지점 내 고정 순번
+  Object.values(branchEmpList).forEach(arr =>
+    arr.forEach(({ key }, pos) => baseOffsetMap[key] = pos)
   );
 
-  let gIdx = 0;
-  employees.forEach(emp => {
-    const key = emp.branch+'||'+emp.name;
-    const wt = parseWorkType(emp.work_type||'');
-    const hours = wt.hours;
-    const daysPerWeek = wt.days;
-    const belt = emp.belt||'화이트';
-    const pat = daysPerWeek<=4 ? OFF_4DAY : OFF_5DAY;
+  // 일별 per-day 출근시간 계산 (당일 출근자 기준 동적 스태거)
+  const startsByKeyDay = {};
+  empData.forEach(({ key }) => startsByKeyDay[key] = {});
 
-    // 이번 달 근무 시작일 (신규 입사자 처리)
-    let startDay = 1;
-    if (emp.hire_date && emp.hire_date.length>=7) {
-      const [hy,hm,hd] = emp.hire_date.split('-').map(Number);
-      if (hy===curY&&hm===curM) startDay=hd;            // 이번 달 입사
-      else if (hy>curY||(hy===curY&&hm>curM)) { gIdx++; return; } // 미입사
-    }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const byBranch = {};
+    empData.forEach(({ key, emp, startDay, slots }) => {
+      if (d < startDay || offMap[key].has(d)) return;
+      (byBranch[emp.branch] = byBranch[emp.branch] || []).push({ key, slots, belt: emp.belt || '화이트' });
+    });
 
-    // 요일별 전체/가용 날짜 (신규입사자는 입사일 이후만)
-    const getDowAll   = d => { const r=[]; for(let dd=1;dd<=daysInMonth;dd++) if(new Date(curY,curM-1,dd).getDay()===d) r.push(dd); return r; };
-    const getDowAvail = d => getDowAll(d).filter(dd=>dd>=startDay);
+    const rot = Math.floor((d - 1) / ROT_INTERVAL);
 
-    // 평일 휴무: 신규입사자는 가용 요일 수 비율로 횟수 조정
-    const offDays = [];
-    for (let dow=1; dow<=5; dow++) {
-      const fullCnt = pat[dow]||0;
-      if (fullCnt<=0) continue;
-      const allDow   = getDowAll(dow);
-      const availDow = getDowAvail(dow);
-      if (!availDow.length) continue;
-      // 전체 월 기준 횟수를 남은 요일 수 비율로 조정 (신규입사자 배려)
-      const cnt = startDay===1 ? fullCnt : Math.floor(fullCnt*availDow.length/allDow.length);
-      if (cnt>0) offDays.push(...pickNEvenly(availDow, cnt, gIdx));
-    }
+    Object.values(byBranch).forEach(workers => {
+      workers.sort((a, b) => bIdx(a.belt) - bIdx(b.belt));
+      workers.forEach(({ key, slots }, pos) => {
+        startsByKeyDay[key][String(d)] = slots[(pos + rot) % slots.length];
+      });
+    });
+  }
 
-    // 주말/공휴일 가용 날짜
-    const whdAvail=[];
-    for (let d=startDay; d<=daysInMonth; d++) {
-      const dow=new Date(curY,curM-1,d).getDay();
-      const hk=`${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      if (dow===0||dow===6||hk in holidays) whdAvail.push(d);
-    }
-
-    // 주말/공휴일 휴무: 가용 일수 기준 목표 휴무수에서 평일 휴무 뺀 만큼
-    const availTotal = daysInMonth-startDay+1;
-    const totalOff = Math.round(availTotal*(7-daysPerWeek)/7);
-    const wkOff = Math.max(0, totalOff-offDays.length);
-    offDays.push(...pickNEvenly(whdAvail, wkOff, gIdx));
-
-    // 출근 시간 배분 (지점 내 순서 기준)
-    const pos = (branchMap[emp.branch]||[]).indexOf(emp);
-    const starts = getStartTimes(hours);
-    const startTime = starts[pos%starts.length];
-
+  // ══ schData 구성 ══
+  schData = {};
+  empData.forEach(({ key, emp, storeHours, slots }) => {
     schData[key] = {
-      name:emp.name, branch:emp.branch, belt,
-      hire_date:emp.hire_date, work_type:emp.work_type||'',
-      shift_start:startTime, shift_hours:hours,
-      off_days:[...new Set(offDays)].sort((a,b)=>a-b)
+      name: emp.name, branch: emp.branch, belt: emp.belt || '화이트',
+      hire_date: emp.hire_date || '', work_type: emp.work_type || '',
+      shift_hours: storeHours,
+      shift_slots: slots,
+      shift_base_offset: baseOffsetMap[key] || 0, // 폴백 로테이션용
+      rotation_interval: ROT_INTERVAL,
+      shift_starts: startsByKeyDay[key] || {},
+      off_days: [...offMap[key]].sort((a, b) => a - b)
     };
-    gIdx++;
   });
 
   saveSchData(curY, curM, schData);
@@ -515,11 +573,24 @@ function parseWorkType(str) {
   return { days: dm?parseInt(dm[1]):5, hours: hm?parseInt(hm[1]):8 };
 }
 
+// 출근 가능 시간 목록
+// 슬롯 범위는 근무시간(순수 근무, 휴게 제외) 기준으로 계산해 로테이션 슬롯 확보
+// → 10시간 근무자도 10:00/11:00 두 슬롯 가능 (11:00 출근 시 매장 마감 후 정리 시간 포함)
+function getSlots(storeHours) {
+  const workHours = storeHours - 1; // 휴게 1시간 제외한 순수 근무시간
+  const r = [];
+  for (let h = 10; h <= 21 - workHours; h++) r.push(`${String(h).padStart(2,'0')}:00`);
+  return r.length ? r : ['10:00'];
+}
+
 function mkEntry(emp) {
   const wt = parseWorkType(emp.work_type||'');
   const belt = emp.belt || '화이트';
+  const storeHours = wt.hours + 1; // +1 휴게 포함 매장 상주 시간
+  const slots = getSlots(storeHours);
   return { name:emp.name, branch:emp.branch, belt, hire_date:emp.hire_date||'',
-           work_type:emp.work_type||'', shift_start:DEFAULT_START, shift_hours:wt.hours, off_days:[] };
+           work_type:emp.work_type||'', shift_hours:storeHours, shift_slots:slots,
+           shift_starts:{}, off_days:[] };
 }
 
 function buildTable() {
@@ -546,17 +617,37 @@ function buildTable() {
   hd += '<th style="background:#2a2a4e;min-width:32px">근무</th><th style="background:#2a2a4e;min-width:32px">휴무</th></tr>';
   document.getElementById('sch-head').innerHTML = hd;
 
+  // 지점 내 순번 사전 계산 (로테이션 폴백용)
+  const branchCounter = {};
+  const branchPosMap  = {};
+  emps.forEach(e => {
+    const k = e.branch + '||' + e.name;
+    branchCounter[e.branch] = (branchCounter[e.branch] || 0);
+    branchPosMap[k] = branchCounter[e.branch]++;
+  });
+
   let body = '';
   let lastBranch = null;
   emps.forEach(emp => {
     const key = emp.branch + '||' + emp.name;
     const sd = schData[key] || {};
     const belt  = sd.belt || emp.belt || '화이트';
-    const start = sd.shift_start || DEFAULT_START;
-    const hours = sd.shift_hours || BELT_HOURS[belt] || 8;
-    const end   = addHours(start, hours);
-    const offs  = sd.off_days || [];
-    const hd2   = sd.hire_date || emp.hire_date || '';
+
+    // 상주 시간: 새 형식(storeHours) 또는 구 형식(workHours) + 1 폴백
+    const hours = sd.shift_hours || (BELT_HOURS[belt]||8) + 1;
+
+    // 슬롯: 새 데이터는 shift_slots 사용, 구 데이터는 workHours에서 역산
+    const slots = (sd.shift_slots && sd.shift_slots.length)
+      ? sd.shift_slots
+      : getSlots((sd.shift_hours || BELT_HOURS[belt] || 8) + 1);
+
+    const slotsText = slots.join('/');
+    const offs = sd.off_days || [];
+    const hd2  = sd.hire_date || emp.hire_date || '';
+
+    // 로테이션 파라미터 (새 데이터는 shift_base_offset 사용, 구 데이터는 branchPosMap 폴백)
+    const ROT_INT  = sd.rotation_interval || 2;
+    const basePos  = sd.shift_base_offset !== undefined ? sd.shift_base_offset : (branchPosMap[key] || 0);
 
     if (!branch && emp.branch !== lastBranch) {
       body += `<tr class="branch-row"><td colspan="${days+4}">📍 ${emp.branch}</td></tr>`;
@@ -588,7 +679,12 @@ function buildTable() {
         cells += `<td class="${holCls}" onclick="toggle('${key}',${d})"><span class="d-off">휴무</span></td>`;
       } else {
         workCnt++;
-        cells += `<td class="${holCls}" onclick="toggle('${key}',${d})"><span class="d-work">${start}<br>${end}</span></td>`;
+        // 출근시간: 새 데이터(shift_starts 맵) 우선, 없으면 로테이션 공식으로 계산
+        const rot = Math.floor((d - 1) / ROT_INT);
+        const ds  = (sd.shift_starts && sd.shift_starts[String(d)])
+                 || slots[(basePos + rot) % slots.length];
+        const de  = addHours(ds, hours);
+        cells += `<td class="${holCls}" onclick="toggle('${key}',${d})"><span class="d-work">${ds}<br>${de}</span></td>`;
       }
     }
 
@@ -597,7 +693,7 @@ function buildTable() {
         <span class="belt-badge" style="background:${bS.bg};color:${bS.fg}">${belt}</span>
         <button class="emp-name-btn" onclick="openModal('${key}')">${empTag}</button>
       </div></td>
-      <td class="td-shift">${start}<br>~${end}<br><span style="color:#aaa;font-size:9px">(${hours}h)</span></td>
+      <td class="td-shift">${slotsText}<br><span style="color:#aaa;font-size:9px">(${hours}h상주)</span></td>
       ${cells}
       <td class="cnt-work">${workCnt}</td>
       <td class="cnt-off">${offCnt}</td>
@@ -621,22 +717,26 @@ function toggle(key, day) {
 /* ── Shift Modal ── */
 function openModal(key) {
   editKey = key;
-  const sd = schData[key]||{};
-  const emp = employees.find(e=>e.branch+'||'+e.name===key)||{};
-  const belt = sd.belt||emp.belt||'화이트';
-  document.getElementById('modal-title').textContent = `${emp.name||''} 출근 시간 (${belt} · ${BELT_HOURS[belt]||8}h)`;
-  document.getElementById('m-start').value = sd.shift_start||DEFAULT_START;
+  const sd  = schData[key] || {};
+  const emp = employees.find(e => e.branch+'||'+e.name === key) || {};
+  const belt  = sd.belt || emp.belt || '화이트';
+  const wt    = parseWorkType(sd.work_type || emp.work_type || '');
+  const hours = sd.shift_hours || wt.hours + 1 || (BELT_HOURS[belt]||8) + 1;
+  const curSlot = sd.shift_slots && sd.shift_slots[0] || sd.shift_start || DEFAULT_START;
+  document.getElementById('modal-title').textContent = `${emp.name||''} 출근 시간 고정 (${belt} · ${hours}h 상주) — 저장 시 로테이션 해제`;
+  document.getElementById('m-start').value = curSlot;
   updatePreview();
   document.getElementById('modal').classList.add('open');
 }
 function updatePreview() {
   if (!editKey) return;
-  const sd = schData[editKey]||{};
-  const emp = employees.find(e=>e.branch+'||'+e.name===editKey)||{};
-  const belt = sd.belt||emp.belt||'화이트';
-  const hours = BELT_HOURS[belt]||8;
+  const sd  = schData[editKey] || {};
+  const emp = employees.find(e => e.branch+'||'+e.name === editKey) || {};
+  const belt  = sd.belt || emp.belt || '화이트';
+  const wt    = parseWorkType(sd.work_type || emp.work_type || '');
+  const hours = sd.shift_hours || wt.hours + 1 || (BELT_HOURS[belt]||8) + 1;
   const start = document.getElementById('m-start').value;
-  document.getElementById('m-preview').textContent = `퇴근: ${start} + ${hours}h → ${addHours(start,hours)}`;
+  document.getElementById('m-preview').textContent = `퇴근: ${start} + ${hours}h → ${addHours(start, hours)}`;
 }
 function closeModal() { document.getElementById('modal').classList.remove('open'); editKey=null; }
 function saveModal() {
@@ -646,7 +746,12 @@ function saveModal() {
     const emp = employees.find(e=>e.branch+'||'+e.name===editKey);
     schData[editKey] = mkEntry(emp||{name:'',branch:'',belt:'화이트',hire_date:''});
   }
-  schData[editKey].shift_start = start;
+  // 고정 시간 설정: 전 날짜에 동일 적용, 로테이션 해제
+  const totalDays = new Date(curY, curM, 0).getDate();
+  const fixedStarts = {};
+  for (let d = 1; d <= totalDays; d++) fixedStarts[String(d)] = start;
+  schData[editKey].shift_starts = fixedStarts;
+  schData[editKey].shift_slots  = [start];
   dirty = true;
   closeModal();
   buildTable();
