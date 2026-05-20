@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>끌리메 근무표</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background:#F0F2F5;color:#1a1a2e;overflow-x:hidden}
+.app-header{background:#1a1a2e;color:#fff;padding:0 20px;display:flex;align-items:center;gap:16px;height:52px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.app-title{font-size:17px;font-weight:800;white-space:nowrap}
+.tabs{display:flex;gap:3px}
+.tab-btn{padding:6px 14px;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;color:#aaa;background:transparent;transition:.15s}
+.tab-btn.active{background:#4F46E5;color:#fff}
+.tab-btn:hover:not(.active){color:#fff;background:#2d2d4e}
+.view{display:none;padding:16px}
+.view.active{display:block}
+
+/* ─ Dashboard ─ */
+.dash-header{background:#fff;border-radius:12px;padding:16px 20px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.summary{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.card{border-radius:10px;padding:12px 16px;box-shadow:0 2px 6px rgba(0,0,0,.08);flex:1;min-width:80px}
+.card .lbl{font-size:11px;font-weight:600;opacity:.8;margin-bottom:3px}
+.card .val{font-size:22px;font-weight:800}
+.card-total{background:#4F46E5;color:#fff}
+.tbl-wrap{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);overflow:auto}
+.dash-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.dash-tbl th{background:#1a1a2e;color:#fff;padding:9px 7px;font-weight:600;white-space:nowrap;position:sticky;top:0}
+.dash-tbl td{padding:7px 6px;border-bottom:1px solid #F0F0F0;vertical-align:top}
+.dash-tbl tr:hover td{filter:brightness(.97)}
+.emp-tag{display:block;line-height:1.8;white-space:nowrap;font-size:11px}
+
+/* ─ Schedule ─ */
+.sch-controls{background:#fff;border-radius:12px;padding:10px 16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sch-controls select{padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;background:#fff}
+.nav-btn{padding:5px 11px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;line-height:1}
+.nav-btn:hover{background:#f5f5f5}
+.month-lbl{font-size:16px;font-weight:700;min-width:100px;text-align:center}
+.btn-init{padding:6px 13px;background:#fff;color:#059669;border:1px solid #059669;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-init:hover{background:#ECFDF5}
+.btn-save{padding:6px 13px;background:#4F46E5;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-save:hover{background:#4338CA}
+.btn-refresh{padding:6px 13px;background:#fff;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer}
+.btn-refresh:hover{background:#f5f5f5}
+
+.sch-outer{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);overflow:auto;max-height:calc(100vh - 190px)}
+#sch-table{border-collapse:collapse;font-size:11px;white-space:nowrap}
+#sch-table thead th{background:#1a1a2e;color:#fff;padding:7px 3px;font-weight:600;position:sticky;top:0;z-index:5;text-align:center;min-width:38px}
+#sch-table thead th.th-name{min-width:130px;text-align:left;padding-left:10px;left:0;z-index:11;position:sticky}
+#sch-table thead th.th-shift{min-width:60px;left:130px;z-index:11;position:sticky;background:#1e1e3f}
+#sch-table tbody td{padding:2px 2px;border-bottom:1px solid #f0f0f0;border-right:1px solid #f5f5f5;text-align:center;cursor:pointer;transition:filter .1s}
+#sch-table tbody td.td-name{position:sticky;left:0;background:#fff;z-index:4;padding:3px 8px;text-align:left;border-right:1px solid #e0e0e0;cursor:default;min-width:130px}
+#sch-table tbody td.td-shift{position:sticky;left:130px;background:#f8f8ff;z-index:4;border-right:1px solid #e0e0e0;min-width:60px;cursor:default;font-size:10px;color:#555;text-align:center;padding:2px 3px}
+#sch-table tbody tr:hover td:not(.td-name):not(.td-shift){filter:brightness(.92)}
+
+.d-work{background:#E8F5E9;color:#1B5E20;font-size:9px;padding:1px 1px;line-height:1.3;border-radius:2px;display:block;cursor:pointer}
+.d-off{background:#FFF3E0;color:#BF360C;font-size:10px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
+.d-none{background:#F5F5F5;color:#bbb;font-size:10px;display:block;cursor:default}
+.d-sun td{background:#FFF5F5 !important}
+.d-sat td{background:#F0F8FF !important}
+.th-sun{color:#FF7043 !important}
+.th-sat{color:#42A5F5 !important}
+.th-holiday{color:#fff !important;background:#C62828 !important}
+.td-holiday{background:#FFEBEE !important}
+
+.emp-cell{display:flex;align-items:center;gap:5px}
+.belt-badge{display:inline-block;padding:1px 5px;border-radius:9px;font-size:9px;font-weight:700;white-space:nowrap;flex-shrink:0}
+.emp-name-btn{font-size:12px;font-weight:600;cursor:pointer;background:none;border:none;color:inherit;font-family:inherit;text-align:left}
+.emp-name-btn:hover{text-decoration:underline;color:#4F46E5}
+.cnt-work{color:#4F46E5;font-weight:700;font-size:11px}
+.cnt-off{color:#E65100;font-weight:700;font-size:11px}
+.branch-row td{background:#EEF2FF !important;font-weight:800;font-size:12px;color:#3730A3;border-top:2px solid #4F46E5;padding:5px 10px !important;cursor:default !important;pointer-events:none}
+
+/* ─ Modal ─ */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center}
+.overlay.open{display:flex}
+.modal{background:#fff;border-radius:16px;padding:24px;min-width:300px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.2)}
+.modal h3{font-size:15px;font-weight:700;margin-bottom:16px;color:#1a1a2e}
+.f-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.f-row label{font-size:13px;font-weight:600;min-width:80px;color:#555}
+.f-row input{padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;width:130px}
+.f-hint{font-size:11px;color:#888;margin-top:-8px;margin-bottom:12px;padding-left:92px}
+.modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.btn-cancel{padding:8px 16px;background:#fff;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer}
+.btn-ok{padding:8px 16px;background:#4F46E5;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+.stat-text{font-size:12px;color:#aaa;margin-left:auto}
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <span class="app-title">🌸 끌리메</span>
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-dashboard" onclick="showTab('dashboard')">현황판</button>
+    <button class="tab-btn" id="tab-schedule" onclick="showTab('schedule')">근무표</button>
+  </div>
+  <span class="stat-text" id="stat-text">로딩 중...</span>
+</div>
+
+<!-- ══ DASHBOARD ══ -->
+<div id="view-dashboard" class="view active">
+  <div class="dash-header">
+    <div>
+      <div style="font-size:17px;font-weight:800">근무인원 현황판</div>
+      <div style="font-size:12px;color:#888;margin-top:3px" id="dash-meta">—</div>
+    </div>
+    <button class="btn-refresh" onclick="loadEmployees()">↻ 새로고침</button>
+  </div>
+  <div class="summary" id="dash-summary"></div>
+  <div class="tbl-wrap" id="dash-wrap"><div style="text-align:center;padding:40px;color:#aaa">⏳ 로딩 중...</div></div>
+</div>
+
+<!-- ══ SCHEDULE ══ -->
+<div id="view-schedule" class="view">
+  <div class="sch-controls">
+    <select id="branch-sel" onchange="buildTable()">
+      <option value="">전체 지점</option>
+    </select>
+    <button class="nav-btn" onclick="prevMonth()">◀</button>
+    <span class="month-lbl" id="month-lbl">—</span>
+    <button class="nav-btn" onclick="nextMonth()">▶</button>
+    <button class="btn-init" onclick="initMonth()">📋 이달 초기화</button>
+    <button class="btn-save" onclick="doSave()">💾 저장</button>
+    <span style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 설정 &nbsp;|&nbsp; 날짜 클릭 → 근무↔휴무 전환</span>
+  </div>
+  <div class="sch-outer">
+    <table id="sch-table">
+      <thead id="sch-head"></thead>
+      <tbody id="sch-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══ SHIFT MODAL ══ -->
+<div class="overlay" id="modal">
+  <div class="modal">
+    <h3 id="modal-title">근무 시간 설정</h3>
+    <div class="f-row">
+      <label>출근 시간</label>
+      <input type="time" id="m-start" value="10:00" oninput="updatePreview()">
+    </div>
+    <div class="f-hint" id="m-preview"></div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeModal()">취소</button>
+      <button class="btn-ok" onclick="saveModal()">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SHEET_ID = '1kXGHbBBIAIXoNkXbEXzck0oKGF9RYQddhO279HociSo';
+const GID      = '0';
+
+const BELT_ORDER = ['골드','실버','블랙','레드','블루','퍼플','옐로우','화이트','실습생'];
+const BELT_HOURS = {골드:10,실버:10,블랙:10,레드:9,블루:9,퍼플:8,옐로우:8,화이트:8,실습생:8};
+const DEFAULT_START = '10:00';
+const BS = {
+  골드:{bg:'#FFF3CD',fg:'#856404'}, 실버:{bg:'#E2E3E5',fg:'#383D41'},
+  블랙:{bg:'#343A40',fg:'#FFFFFF'}, 레드:{bg:'#F8D7DA',fg:'#721C24'},
+  블루:{bg:'#CCE5FF',fg:'#004085'}, 퍼플:{bg:'#E8D5F5',fg:'#5B2C8D'},
+  옐로우:{bg:'#FFF9C4',fg:'#6D5500'}, 화이트:{bg:'#EEEEEE',fg:'#333333'},
+  실습생:{bg:'#D4EDDA',fg:'#155724'}
+};
+const KD = ['일','월','화','수','목','금','토'];
+
+const HOLIDAYS = {
+  "2024-01-01":"신정","2024-02-09":"설날연휴","2024-02-10":"설날","2024-02-11":"설날연휴","2024-02-12":"대체공휴일",
+  "2024-03-01":"삼일절","2024-05-05":"어린이날","2024-05-06":"대체공휴일","2024-05-15":"부처님오신날",
+  "2024-06-06":"현충일","2024-08-15":"광복절","2024-09-16":"추석연휴","2024-09-17":"추석","2024-09-18":"추석연휴",
+  "2024-10-03":"개천절","2024-10-09":"한글날","2024-12-25":"크리스마스",
+  "2025-01-01":"신정","2025-01-28":"설날연휴","2025-01-29":"설날","2025-01-30":"설날연휴",
+  "2025-03-01":"삼일절","2025-03-03":"대체공휴일","2025-05-05":"어린이날","2025-05-06":"부처님오신날·대체공휴일",
+  "2025-06-06":"현충일","2025-08-15":"광복절","2025-10-03":"개천절","2025-10-05":"추석연휴",
+  "2025-10-06":"추석","2025-10-07":"추석연휴","2025-10-08":"대체공휴일","2025-10-09":"한글날","2025-12-25":"크리스마스",
+  "2026-01-01":"신정","2026-02-16":"설날연휴","2026-02-17":"설날","2026-02-18":"설날연휴",
+  "2026-03-01":"삼일절","2026-03-02":"대체공휴일","2026-05-05":"어린이날","2026-05-24":"부처님오신날",
+  "2026-06-06":"현충일","2026-08-15":"광복절","2026-08-17":"대체공휴일","2026-09-24":"추석연휴",
+  "2026-09-25":"추석","2026-09-26":"추석연휴","2026-10-03":"개천절","2026-10-05":"대체공휴일",
+  "2026-10-09":"한글날","2026-12-25":"크리스마스",
+  "2027-01-01":"신정","2027-02-06":"설날연휴","2027-02-07":"설날","2027-02-08":"설날연휴",
+  "2027-03-01":"삼일절","2027-05-05":"어린이날","2027-05-13":"부처님오신날","2027-06-06":"현충일",
+  "2027-06-07":"대체공휴일","2027-08-15":"광복절","2027-08-16":"대체공휴일","2027-10-03":"개천절",
+  "2027-10-04":"추석연휴","2027-10-05":"추석","2027-10-06":"추석연휴","2027-10-09":"한글날",
+  "2027-12-25":"크리스마스","2027-12-27":"대체공휴일",
+  "2028-01-01":"신정","2028-01-26":"설날연휴","2028-01-27":"설날","2028-01-28":"설날연휴",
+  "2028-03-01":"삼일절","2028-05-01":"부처님오신날","2028-05-05":"어린이날","2028-06-06":"현충일",
+  "2028-08-15":"광복절","2028-09-12":"추석연휴","2028-09-13":"추석","2028-09-14":"추석연휴",
+  "2028-10-03":"개천절","2028-10-09":"한글날","2028-12-25":"크리스마스"
+};
+
+let employees = [];
+let schData = {};
+let curY = new Date().getFullYear();
+let curM = new Date().getMonth() + 1;
+let dirty = false;
+let editKey = null;
+
+/* ── Google GViz 네임스페이스 가로채기 ── */
+window.google = window.google || {};
+window.google.visualization = window.google.visualization || {};
+window.google.visualization.Query = window.google.visualization.Query || {};
+window.google.visualization.Query.setResponse = function(resp) { onEmployeeData(resp); };
+
+/* ── Tab ── */
+function showTab(t) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + t).classList.add('active');
+  document.getElementById('tab-' + t).classList.add('active');
+  if (t === 'schedule') renderSchedule();
+}
+
+/* ── 직원 데이터 로드 (GViz JSONP) ── */
+function loadEmployees() {
+  setStat('불러오는 중...');
+  const old = document.getElementById('_gviz');
+  if (old) old.remove();
+  const s = document.createElement('script');
+  s.id = '_gviz';
+  s.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}&_=${Date.now()}`;
+  s.onerror = () => setStat('구글 시트 연결 실패 — 시트 공개 여부 확인');
+  document.head.appendChild(s);
+}
+
+function onEmployeeData(resp) {
+  try {
+    if (!resp || resp.status !== 'ok') throw new Error('응답 오류');
+    const cols = resp.table.cols;
+    const rows = resp.table.rows;
+
+    let iB=-1, iN=-1, iR=-1, iL=-1, iD=-1;
+    const findIdx = (arr) => arr.forEach((c, i) => {
+      const t = String(c?.label ?? c?.v ?? c?.f ?? '').trim();
+      if (t==='지점') iB=i;
+      else if (t==='이름') iN=i;
+      else if (t==='직무'||t==='직급') iR=i;
+      else if (t==='벨트'||t==='등급') iL=i;
+      else if (t==='입사일'||t.includes('입사')) iD=i;
+    });
+    findIdx(cols);
+
+    let dataStart = 0;
+    if (iB<0 || iN<0) {
+      for (let ri=0; ri<Math.min(rows.length,5); ri++) {
+        const cells = (rows[ri].c||[]).map(c => ({label: String(c?.f||c?.v||'').trim()}));
+        iB=-1; iN=-1; iR=-1; iL=-1; iD=-1;
+        findIdx(cells);
+        if (iB>=0 && iN>=0) { dataStart=ri+1; break; }
+      }
+    }
+    if (iB<0) iB=1; if (iN<0) iN=2; if (iR<0) iR=3; if (iL<0) iL=4;
+
+    const getStr = (row, i) => (i>=0 && row.c && row.c[i]) ? String(row.c[i].f||row.c[i].v||'').trim() : '';
+    const parseDate = (cell) => {
+      if (!cell) return '';
+      const src = String(cell.f||'') + ' ' + String(cell.v||'');
+      const m = src.match(/Date\((\d{4}),(\d{1,2}),(\d{1,2})\)/);
+      if (m) return `${m[1]}-${String(parseInt(m[2])+1).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+      const m2 = src.match(/(\d{4})[.\-\s\/년]+(\d{1,2})[.\-\s\/월]+(\d{1,2})/);
+      if (m2) return `${m2[1]}-${String(m2[2]).padStart(2,'0')}-${String(m2[3]).padStart(2,'0')}`;
+      return '';
+    };
+
+    employees = [];
+    rows.slice(dataStart).forEach(row => {
+      const branch = getStr(row, iB);
+      const name   = getStr(row, iN);
+      if (!branch || !name) return;
+      const role     = getStr(row, iR);
+      const beltRaw  = getStr(row, iL);
+      const belt     = BELT_ORDER.includes(beltRaw) ? beltRaw : '실습생';
+      const hireDate = iD>=0 ? parseDate(row.c && row.c[iD]) : '';
+      employees.push({ branch, name, role, belt, hire_date: hireDate });
+    });
+
+    renderDashboard();
+    populateBranches();
+    setStat('최종: ' + new Date().toLocaleTimeString('ko-KR'));
+    if (document.getElementById('view-schedule').classList.contains('active'))
+      renderSchedule();
+  } catch(e) {
+    setStat('파싱 오류: ' + e.message);
+  }
+}
+
+/* ── localStorage 스케줄 저장/로드 ── */
+function lsKey(y, m) { return `cclime_sch_${y}_${String(m).padStart(2,'0')}`; }
+function loadSchData(y, m) {
+  try { return JSON.parse(localStorage.getItem(lsKey(y,m)) || '{}'); } catch { return {}; }
+}
+function saveSchData(y, m, data) {
+  localStorage.setItem(lsKey(y,m), JSON.stringify(data));
+}
+
+/* ── 공휴일 ── */
+function getHolidays(y) {
+  const prefix = `${y}-`, result = {};
+  Object.entries(HOLIDAYS).forEach(([k,v]) => {
+    if (k.startsWith(prefix)) result[k.substring(5)] = v;
+  });
+  return result;
+}
+
+/* ── Dashboard 렌더 ── */
+function renderDashboard() {
+  const today = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
+  document.getElementById('dash-meta').innerHTML =
+    `기준일: <strong>${today}</strong>&nbsp;|&nbsp;재직자: <strong>${employees.length}명</strong>`;
+
+  const bmap = {};
+  employees.forEach(e => { bmap[e.branch] = bmap[e.branch] || (parseInt(e.branch)||99); });
+  const branches = Object.keys(bmap).sort((a,b) => bmap[a]-bmap[b]);
+
+  const data = {};
+  branches.forEach(b => { data[b]={}; BELT_ORDER.forEach(l => data[b][l]=[]); });
+  employees.forEach(e => {
+    const belt = BELT_ORDER.includes(e.belt) ? e.belt : '실습생';
+    const role = e.role && e.role.includes('매니저') ? 'M' : 'B';
+    const ym = e.hire_date ? e.hire_date.substring(0,7).replace('-','.') : '';
+    data[e.branch][belt].push({tag:[ym,e.name,role].filter(Boolean).join('.'), fg:BS[belt]?.fg||'#333'});
+  });
+  const bt = {};
+  BELT_ORDER.forEach(l => { bt[l]=employees.filter(e=>(BELT_ORDER.includes(e.belt)?e.belt:'실습생')===l).length; });
+
+  let sm = `<div class="card card-total"><div class="lbl">전체</div><div class="val">${employees.length}</div></div>`;
+  BELT_ORDER.forEach(belt => {
+    if (!bt[belt]) return;
+    const s = BS[belt]||{bg:'#eee',fg:'#333'};
+    sm += `<div class="card" style="background:${s.bg};color:${s.fg}"><div class="lbl">${belt}</div><div class="val">${bt[belt]}</div></div>`;
+  });
+  document.getElementById('dash-summary').innerHTML = sm;
+
+  const beltTh = BELT_ORDER.map(b => {
+    const s = BS[b]||{bg:'#555',fg:'#fff'};
+    return `<th><span style="background:${s.bg};color:${s.fg};padding:2px 7px;border-radius:8px;font-size:11px">${b}</span></th>`;
+  }).join('');
+
+  let body = '';
+  branches.forEach((br, i) => {
+    const tot = BELT_ORDER.reduce((s,l) => s+data[br][l].length, 0);
+    const cells = BELT_ORDER.map(belt => {
+      const list = data[br][belt]; const s = BS[belt]||{bg:'#fff',fg:'#333'};
+      if (!list.length) return `<td style="background:#fff;color:#ddd;text-align:center">-</td>`;
+      return `<td style="background:${s.bg}">${list.map(x=>`<span class="emp-tag" style="color:${x.fg}">${x.tag}</span>`).join('')}</td>`;
+    }).join('');
+    body += `<tr style="background:${i%2?'#fff':'#FAFAFA'}">
+      <td style="text-align:center;color:#aaa;font-size:12px">${i+1}</td>
+      <td style="font-weight:700;white-space:nowrap;font-size:13px">${br}</td>
+      <td style="text-align:center;font-weight:800;font-size:15px;color:#4F46E5">${tot}</td>${cells}</tr>`;
+  });
+  const footC = BELT_ORDER.map(belt => {
+    const s = BS[belt]||{bg:'#eee',fg:'#333'};
+    return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800">${bt[belt]||'-'}</td>`;
+  }).join('');
+  document.getElementById('dash-wrap').innerHTML = `
+  <table class="dash-tbl">
+    <thead><tr><th>No.</th><th>지점</th><th>합계</th>${beltTh}</tr></thead>
+    <tbody>${body}
+      <tr style="background:#F8F8FF;font-weight:800;border-top:3px solid #4F46E5">
+        <td colspan="2" style="text-align:center">합계</td>
+        <td style="text-align:center;font-weight:800;font-size:15px;color:#4F46E5">${employees.length}</td>${footC}
+      </tr>
+    </tbody>
+  </table>`;
+}
+
+/* ── Schedule 렌더 ── */
+function renderSchedule() {
+  document.getElementById('month-lbl').textContent = `${curY}년 ${curM}월`;
+  schData = loadSchData(curY, curM);
+  buildTable();
+}
+
+/* ── 이달 초기화 ── */
+function initMonth() {
+  if (!confirm(`${curY}년 ${curM}월 근무표를 현재 인원 기준으로 초기화합니다.\n기존 설정(출근시간·휴무일)은 유지됩니다.`)) return;
+  if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
+
+  const days = new Date(curY, curM, 0).getDate();
+  const weekendOffs = [];
+  for (let d=1; d<=days; d++) {
+    if (new Date(curY, curM-1, d).getDay() >= 5) weekendOffs.push(d);
+  }
+
+  employees.forEach(emp => {
+    const key = emp.branch + '||' + emp.name;
+    const belt = emp.belt || '화이트';
+    if (schData[key]) {
+      schData[key].belt = belt;
+      schData[key].hire_date = emp.hire_date;
+    } else {
+      schData[key] = {
+        name: emp.name, branch: emp.branch, belt,
+        hire_date: emp.hire_date,
+        shift_start: DEFAULT_START,
+        shift_hours: BELT_HOURS[belt] || 8,
+        off_days: [...weekendOffs]
+      };
+    }
+  });
+  saveSchData(curY, curM, schData);
+  dirty = false;
+  buildTable();
+  setStat('초기화 완료');
+}
+
+/* ── 저장 ── */
+function doSave() {
+  const branch = document.getElementById('branch-sel').value;
+  employees.filter(e => !branch || e.branch === branch).forEach(emp => {
+    const key = emp.branch + '||' + emp.name;
+    if (!schData[key]) schData[key] = mkEntry(emp);
+  });
+  saveSchData(curY, curM, schData);
+  dirty = false;
+  setStat('저장 완료 ' + new Date().toLocaleTimeString('ko-KR'));
+}
+
+/* ── 테이블 빌드 ── */
+function addHours(t, h) {
+  const [hh,mm] = t.split(':').map(Number);
+  const tot = hh*60 + mm + h*60;
+  return String(~~(tot/60)).padStart(2,'0') + ':' + String(tot%60).padStart(2,'0');
+}
+function mkEntry(emp) {
+  const belt = emp.belt || '화이트';
+  return { name:emp.name, branch:emp.branch, belt, hire_date:emp.hire_date||'',
+           shift_start:DEFAULT_START, shift_hours:BELT_HOURS[belt]||8, off_days:[] };
+}
+
+function buildTable() {
+  const branch = document.getElementById('branch-sel').value;
+  const days = new Date(curY, curM, 0).getDate();
+  const holidays = getHolidays(curY);
+
+  let emps = employees.filter(e => !branch || e.branch === branch);
+  emps.sort((a,b) => {
+    const ba=parseInt(a.branch)||999, bb=parseInt(b.branch)||999;
+    if (ba!==bb) return ba-bb;
+    return (BELT_ORDER.indexOf(a.belt)??8)-(BELT_ORDER.indexOf(b.belt)??8);
+  });
+
+  let hd = '<tr><th class="th-name">직원</th><th class="th-shift">근무시간</th>';
+  for (let d=1; d<=days; d++) {
+    const dow = new Date(curY, curM-1, d).getDay();
+    const hkey = String(curM).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const isHol = hkey in holidays;
+    let cls = dow===0 ? 'th-sun' : (dow===6 ? 'th-sat' : '');
+    if (isHol) cls = 'th-holiday';
+    hd += `<th class="${cls}"${isHol?` title="${holidays[hkey]}"`:''} >${d}<br><span style="font-size:9px;font-weight:400">${KD[dow]}</span></th>`;
+  }
+  hd += '<th style="background:#2a2a4e;min-width:32px">근무</th><th style="background:#2a2a4e;min-width:32px">휴무</th></tr>';
+  document.getElementById('sch-head').innerHTML = hd;
+
+  let body = '';
+  let lastBranch = null;
+  emps.forEach(emp => {
+    const key = emp.branch + '||' + emp.name;
+    const sd = schData[key] || {};
+    const belt  = sd.belt || emp.belt || '화이트';
+    const start = sd.shift_start || DEFAULT_START;
+    const hours = sd.shift_hours || BELT_HOURS[belt] || 8;
+    const end   = addHours(start, hours);
+    const offs  = sd.off_days || [];
+    const hd2   = sd.hire_date || emp.hire_date || '';
+
+    if (!branch && emp.branch !== lastBranch) {
+      body += `<tr class="branch-row"><td colspan="${days+4}">📍 ${emp.branch}</td></tr>`;
+      lastBranch = emp.branch;
+    }
+
+    const bS = BS[belt]||{bg:'#eee',fg:'#333'};
+    let workCnt=0, offCnt=0, cells='';
+    for (let d=1; d<=days; d++) {
+      const dow = new Date(curY, curM-1, d).getDay();
+      const hkey2 = String(curM).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+      const holCls = (hkey2 in holidays) ? ' td-holiday' : '';
+
+      let beforeHire = false;
+      if (hd2 && hd2.length >= 10) {
+        const [hy,hm,hdd] = hd2.split('-').map(Number);
+        if (curY<hy||(curY===hy&&curM<hm)||(curY===hy&&curM===hm&&d<hdd)) beforeHire=true;
+      }
+
+      if (beforeHire) {
+        cells += `<td class="${holCls}"><span class="d-none">—</span></td>`;
+      } else if (offs.includes(d)) {
+        offCnt++;
+        cells += `<td class="${holCls}" onclick="toggle('${key}',${d})"><span class="d-off">휴무</span></td>`;
+      } else {
+        workCnt++;
+        cells += `<td class="${holCls}" onclick="toggle('${key}',${d})"><span class="d-work">${start}<br>${end}</span></td>`;
+      }
+    }
+
+    body += `<tr>
+      <td class="td-name"><div class="emp-cell">
+        <span class="belt-badge" style="background:${bS.bg};color:${bS.fg}">${belt}</span>
+        <button class="emp-name-btn" onclick="openModal('${key}')">${emp.name}</button>
+      </div></td>
+      <td class="td-shift">${start}<br>~${end}<br><span style="color:#aaa;font-size:9px">(${hours}h)</span></td>
+      ${cells}
+      <td class="cnt-work">${workCnt}</td>
+      <td class="cnt-off">${offCnt}</td>
+    </tr>`;
+  });
+  document.getElementById('sch-body').innerHTML = body;
+}
+
+function toggle(key, day) {
+  if (!schData[key]) {
+    const emp = employees.find(e => e.branch+'||'+e.name===key);
+    schData[key] = mkEntry(emp || {name:'',branch:'',belt:'화이트',hire_date:''});
+  }
+  const offs = schData[key].off_days || (schData[key].off_days=[]);
+  const idx = offs.indexOf(day);
+  if (idx>=0) offs.splice(idx,1); else offs.push(day);
+  dirty = true;
+  buildTable();
+}
+
+/* ── Shift Modal ── */
+function openModal(key) {
+  editKey = key;
+  const sd = schData[key]||{};
+  const emp = employees.find(e=>e.branch+'||'+e.name===key)||{};
+  const belt = sd.belt||emp.belt||'화이트';
+  document.getElementById('modal-title').textContent = `${emp.name||''} 출근 시간 (${belt} · ${BELT_HOURS[belt]||8}h)`;
+  document.getElementById('m-start').value = sd.shift_start||DEFAULT_START;
+  updatePreview();
+  document.getElementById('modal').classList.add('open');
+}
+function updatePreview() {
+  if (!editKey) return;
+  const sd = schData[editKey]||{};
+  const emp = employees.find(e=>e.branch+'||'+e.name===editKey)||{};
+  const belt = sd.belt||emp.belt||'화이트';
+  const hours = BELT_HOURS[belt]||8;
+  const start = document.getElementById('m-start').value;
+  document.getElementById('m-preview').textContent = `퇴근: ${start} + ${hours}h → ${addHours(start,hours)}`;
+}
+function closeModal() { document.getElementById('modal').classList.remove('open'); editKey=null; }
+function saveModal() {
+  if (!editKey) return;
+  const start = document.getElementById('m-start').value;
+  if (!schData[editKey]) {
+    const emp = employees.find(e=>e.branch+'||'+e.name===editKey);
+    schData[editKey] = mkEntry(emp||{name:'',branch:'',belt:'화이트',hire_date:''});
+  }
+  schData[editKey].shift_start = start;
+  dirty = true;
+  closeModal();
+  buildTable();
+}
+
+/* ── Nav ── */
+function confirmDirty() { return !dirty||confirm('저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?'); }
+function prevMonth() {
+  if (!confirmDirty()) return;
+  curM--; if (curM<1){curM=12;curY--;} dirty=false; renderSchedule();
+}
+function nextMonth() {
+  if (!confirmDirty()) return;
+  curM++; if (curM>12){curM=1;curY++;} dirty=false; renderSchedule();
+}
+function populateBranches() {
+  const branches = [...new Set(employees.map(e=>e.branch))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
+  const sel = document.getElementById('branch-sel');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">전체 지점</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
+  if (cur && branches.includes(cur)) sel.value = cur;
+}
+function setStat(msg) { document.getElementById('stat-text').textContent = msg; }
+
+loadEmployees();
+setInterval(loadEmployees, 5*60*1000);
+</script>
+</body>
+</html>
