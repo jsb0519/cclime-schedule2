@@ -248,7 +248,7 @@ function onEmployeeData(resp) {
         if (iB>=0 && iN>=0) { dataStart=ri+1; break; }
       }
     }
-    if (iB<0) iB=1; if (iN<0) iN=2; if (iR<0) iR=3; if (iL<0) iL=4;
+    if (iB<0) iB=1; if (iN<0) iN=2; if (iR<0) iR=3; if (iL<0) iL=4; if (iD<0) iD=7;
 
     const getStr = (row, i) => (i>=0 && row.c && row.c[i]) ? String(row.c[i].f||row.c[i].v||'').trim() : '';
     const parseDate = (cell) => {
