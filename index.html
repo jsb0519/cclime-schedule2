@@ -573,13 +573,10 @@ function parseWorkType(str) {
   return { days: dm?parseInt(dm[1]):5, hours: hm?parseInt(hm[1]):8 };
 }
 
-// 출근 가능 시간 목록
-// 슬롯 범위는 근무시간(순수 근무, 휴게 제외) 기준으로 계산해 로테이션 슬롯 확보
-// → 10시간 근무자도 10:00/11:00 두 슬롯 가능 (11:00 출근 시 매장 마감 후 정리 시간 포함)
+// 출근 가능 시간 목록 — 최대 출근시간은 (21 - storeHours)시, 퇴근 ≤ 21:00 보장
 function getSlots(storeHours) {
-  const workHours = storeHours - 1; // 휴게 1시간 제외한 순수 근무시간
   const r = [];
-  for (let h = 10; h <= 21 - workHours; h++) r.push(`${String(h).padStart(2,'0')}:00`);
+  for (let h = 10; h <= 21 - storeHours; h++) r.push(`${String(h).padStart(2,'0')}:00`);
   return r.length ? r : ['10:00'];
 }
 
