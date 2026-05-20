@@ -237,7 +237,7 @@ function onEmployeeData(resp) {
       else if (t==='벨트'||t==='등급') iL=i;
       else if (t==='입사일'||t.includes('입사')) iD=i;
       else if (t==='근무형태'||t.includes('근무형태')) iW=i;
-      else if (t==='퇴사예정일'||t==='퇴사일'||t==='퇴직예정일') iE=i;
+      else if (t==='퇴사예정일'||t==='퇴사일'||t==='퇴직예정일'||t==='퇴사(예정)일') iE=i;
     });
     findIdx(cols);
 
