@@ -396,30 +396,17 @@ function initMonth() {
   const daysInMonth = new Date(curY, curM, 0).getDate();
   const holidays = getHolidays(curY);
 
-  // 휴무 패턴: {JS요일(1=월...5=금): 월별 휴무 횟수}
+  // 휴무 패턴: {JS요일(1=월...5=금): 전체 월 기준 휴무 횟수}
   const OFF_5DAY = {1:2, 2:2, 3:1, 4:0, 5:0};
   const OFF_4DAY = {1:3, 2:2, 3:1, 4:1, 5:0};
 
-  const getDowDates = (dow) => {
-    const r = [];
-    for (let d=1; d<=daysInMonth; d++)
-      if (new Date(curY, curM-1, d).getDay()===dow) r.push(d);
-    return r;
-  };
-
-  const getWkHoliDates = () => {
-    const r = [];
-    for (let d=1; d<=daysInMonth; d++) {
-      const dow = new Date(curY, curM-1, d).getDay();
-      const hk = `${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      if (dow===0||dow===6||hk in holidays) r.push(d);
-    }
-    return r;
-  };
-
-  const pickN = (arr, n, off) => {
+  // 고르게 n개 선택: off로 시작 위치를 분산시켜 직원 간 휴무 겹침 최소화
+  const pickNEvenly = (arr, n, off) => {
+    if (!arr.length||n<=0) return [];
+    if (n>=arr.length) return [...arr];
+    const step = Math.ceil(arr.length/n);
     const r=[];
-    for (let i=0; i<n&&i<arr.length; i++) r.push(arr[(i+off)%arr.length]);
+    for (let i=0; i<n; i++) r.push(arr[(i*step+off)%arr.length]);
     return r;
   };
 
@@ -429,9 +416,7 @@ function initMonth() {
     return r.length?r:['10:00'];
   };
 
-  const whdDates = getWkHoliDates();
-
-  // 지점별 그룹 (시간대 배분용)
+  // 지점별 그룹 (출근시간 배분용)
   const branchMap = {};
   employees.forEach(e => { (branchMap[e.branch]=branchMap[e.branch]||[]).push(e); });
   Object.values(branchMap).forEach(arr =>
@@ -447,19 +432,46 @@ function initMonth() {
     const belt = emp.belt||'화이트';
     const pat = daysPerWeek<=4 ? OFF_4DAY : OFF_5DAY;
 
-    // 평일 휴무 배분
-    const offDays = [];
-    for (let dow=1; dow<=5; dow++) {
-      const cnt = pat[dow]||0;
-      if (cnt>0) offDays.push(...pickN(getDowDates(dow), cnt, gIdx));
+    // 이번 달 근무 시작일 (신규 입사자 처리)
+    let startDay = 1;
+    if (emp.hire_date && emp.hire_date.length>=7) {
+      const [hy,hm,hd] = emp.hire_date.split('-').map(Number);
+      if (hy===curY&&hm===curM) startDay=hd;            // 이번 달 입사
+      else if (hy>curY||(hy===curY&&hm>curM)) { gIdx++; return; } // 미입사
     }
 
-    // 주말/공휴일 휴무 (목표 휴무일 수에서 평일 휴무 뺀 만큼)
-    const totalOff = Math.round(daysInMonth*(7-daysPerWeek)/7);
-    const wkOff = Math.max(0, totalOff-offDays.length);
-    offDays.push(...pickN(whdDates, wkOff, gIdx*2));
+    // 요일별 전체/가용 날짜 (신규입사자는 입사일 이후만)
+    const getDowAll   = d => { const r=[]; for(let dd=1;dd<=daysInMonth;dd++) if(new Date(curY,curM-1,dd).getDay()===d) r.push(dd); return r; };
+    const getDowAvail = d => getDowAll(d).filter(dd=>dd>=startDay);
 
-    // 지점 내 순서에 따라 출근 시간 배분
+    // 평일 휴무: 신규입사자는 가용 요일 수 비율로 횟수 조정
+    const offDays = [];
+    for (let dow=1; dow<=5; dow++) {
+      const fullCnt = pat[dow]||0;
+      if (fullCnt<=0) continue;
+      const allDow   = getDowAll(dow);
+      const availDow = getDowAvail(dow);
+      if (!availDow.length) continue;
+      // 전체 월 기준 횟수를 남은 요일 수 비율로 조정 (신규입사자 배려)
+      const cnt = startDay===1 ? fullCnt : Math.floor(fullCnt*availDow.length/allDow.length);
+      if (cnt>0) offDays.push(...pickNEvenly(availDow, cnt, gIdx));
+    }
+
+    // 주말/공휴일 가용 날짜
+    const whdAvail=[];
+    for (let d=startDay; d<=daysInMonth; d++) {
+      const dow=new Date(curY,curM-1,d).getDay();
+      const hk=`${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      if (dow===0||dow===6||hk in holidays) whdAvail.push(d);
+    }
+
+    // 주말/공휴일 휴무: 가용 일수 기준 목표 휴무수에서 평일 휴무 뺀 만큼
+    const availTotal = daysInMonth-startDay+1;
+    const totalOff = Math.round(availTotal*(7-daysPerWeek)/7);
+    const wkOff = Math.max(0, totalOff-offDays.length);
+    offDays.push(...pickNEvenly(whdAvail, wkOff, gIdx));
+
+    // 출근 시간 배분 (지점 내 순서 기준)
     const pos = (branchMap[emp.branch]||[]).indexOf(emp);
     const starts = getStartTimes(hours);
     const startTime = starts[pos%starts.length];
