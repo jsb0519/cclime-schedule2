@@ -237,7 +237,7 @@ function onEmployeeData(resp) {
       else if (t==='벨트'||t==='등급') iL=i;
       else if (t==='입사일'||t.includes('입사')) iD=i;
       else if (t==='근무형태'||t.includes('근무형태')) iW=i;
-      else if (t==='퇴사예정일'||t==='퇴사일'||t==='퇴직예정일'||t==='퇴사(예정)일') iE=i;
+      else if (t.includes('퇴사')||t.includes('퇴직')) iE=i;
     });
     findIdx(cols);
 
@@ -273,7 +273,16 @@ function onEmployeeData(resp) {
       const belt     = BELT_ORDER.includes(beltRaw) ? beltRaw : '실습생';
       const hireDate = iD>=0 ? parseDate(row.c && row.c[iD]) : '';
       const workType  = getStr(row, iW);
-      const exitDate  = iE>=0 ? parseDate(row.c && row.c[iE]) : '';
+      let exitDate = '';
+      if (iE >= 0) {
+        exitDate = parseDate(row.c && row.c[iE]);
+        if (!exitDate) {
+          // parseDate 실패 시 텍스트 값으로 재시도
+          const raw = getStr(row, iE);
+          const m2 = raw.match(/(\d{4})[.\-\s\/년]+(\d{1,2})[.\-\s\/월]+(\d{1,2})/);
+          if (m2) exitDate = `${m2[1]}-${String(m2[2]).padStart(2,'0')}-${String(m2[3]).padStart(2,'0')}`;
+        }
+      }
       employees.push({ branch, name, role, belt, hire_date: hireDate, work_type: workType, exit_date: exitDate });
     });
 
