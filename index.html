@@ -240,17 +240,26 @@ function onEmployeeData(resp) {
       else if (t.includes('퇴사')||t.includes('퇴직')) iE=i;
     });
     findIdx(cols);
+    const colsResult = {iB, iN, iR, iL, iD, iW, iE}; // cols 탐색 결과 저장
 
     let dataStart = 0;
-    if (iB<0 || iN<0) {
+    if (iB<0 || iN<0 || iE<0) { // iE 미발견도 행 탐색 트리거
       for (let ri=0; ri<Math.min(rows.length,5); ri++) {
         const cells = (rows[ri].c||[]).map(c => ({label: String(c?.f||c?.v||'').trim()}));
         iB=-1; iN=-1; iR=-1; iL=-1; iD=-1; iW=-1; iE=-1;
         findIdx(cells);
         if (iB>=0 && iN>=0) { dataStart=ri+1; break; }
       }
+      // 행에서도 못 찾은 인덱스는 cols 결과로 보충
+      if(iB<0)iB=colsResult.iB; if(iN<0)iN=colsResult.iN; if(iR<0)iR=colsResult.iR;
+      if(iL<0)iL=colsResult.iL; if(iD<0)iD=colsResult.iD; if(iW<0)iW=colsResult.iW;
+      if(iE<0)iE=colsResult.iE;
     }
     if (iB<0) iB=1; if (iN<0) iN=2; if (iR<0) iR=3; if (iL<0) iL=4; if (iD<0) iD=7; if (iW<0) iW=5;
+    // iE 최후 수단: 텍스트 탐지 실패 시 입사일 이후 첫 번째 date 타입 컬럼으로 추론
+    if (iE < 0 && iD >= 0) {
+      cols.forEach((c, i) => { if (iE<0 && (c.type==='date'||c.type==='datetime') && i>iD) iE=i; });
+    }
 
     const getStr = (row, i) => (i>=0 && row.c && row.c[i]) ? String(row.c[i].f||row.c[i].v||'').trim() : '';
     const parseDate = (cell) => {
@@ -288,7 +297,8 @@ function onEmployeeData(resp) {
 
     renderDashboard();
     populateBranches();
-    setStat('최종: ' + new Date().toLocaleTimeString('ko-KR'));
+    const exitCount = employees.filter(e => e.exit_date).length;
+    setStat(`최종: ${new Date().toLocaleTimeString('ko-KR')} · 퇴사예정 ${exitCount}명 감지`);
 
     // 신규 직원 자동 스케줄 생성
     const tmpSch = loadSchData(curY, curM);
