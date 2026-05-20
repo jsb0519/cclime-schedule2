@@ -576,6 +576,12 @@ function buildTable() {
   const holidays = getHolidays(curY);
 
   let emps = employees.filter(e => !branch || e.branch === branch);
+  // 퇴사월이 현재 월보다 이전인 직원 행 제외
+  emps = emps.filter(e => {
+    if (!e.exit_date || e.exit_date.length < 10) return true;
+    const [ey, em] = e.exit_date.split('-').map(Number);
+    return !(ey < curY || (ey === curY && em < curM));
+  });
   emps.sort((a,b) => {
     const ba=parseInt(a.branch)||999, bb=parseInt(b.branch)||999;
     if (ba!==bb) return ba-bb;
