@@ -400,13 +400,11 @@ function initMonth() {
   const FW5 = {0:0, 1:2, 2:2, 3:1, 4:0, 5:0, 6:0};
   const FW4 = {0:0, 1:3, 2:2, 3:1, 4:1, 5:0, 6:0};
 
-  // ══ PHASE 1: 휴무일 배정 — 일별 근무 인원 균등화 ══
+  // ══ PHASE 1: 주 단위 휴무 배정 (월~일 기준, 주당 정확히 2/3일 휴무) ══
 
-  // 날짜별 출근 인원 카운터 (전체 = 초기값)
   const dayLoad = {};
   for (let d = 1; d <= daysInMonth; d++) dayLoad[d] = 0;
 
-  // 직원별 기초 정보 수집
   const empData = [];
   employees.forEach(emp => {
     const wt = parseWorkType(emp.work_type || '');
@@ -423,72 +421,59 @@ function initMonth() {
     const key = emp.branch + '||' + emp.name;
     const availDays = [];
     for (let d = startDay; d <= daysInMonth; d++) availDays.push(d);
-    availDays.forEach(d => dayLoad[d]++); // 이 직원이 출근 가능한 날 카운트
+    availDays.forEach(d => dayLoad[d]++);
 
-    const totalOff = Math.round(availDays.length * (7 - daysPerWeek) / 7);
     const slots = getSlots(storeHours);
     const hireDow = new Date(curY, curM-1, startDay).getDay();
-
-    empData.push({ key, emp, startDay, availDays, totalOff, daysPerWeek, storeHours, slots, hireDow });
+    empData.push({ key, emp, startDay, availDays, daysPerWeek, storeHours, slots, hireDow });
   });
 
-  // 휴무 많은 직원 먼저 처리 → 균형 잡기 자유도 최대화
-  const sorted = [...empData].sort((a, b) => b.totalOff - a.totalOff);
+  // 월~일 기준 주 목록 구성 (일요일 또는 월말에서 끊음)
+  const weeks = [];
+  let wd = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    wd.push(d);
+    if (new Date(curY, curM-1, d).getDay() === 0 || d === daysInMonth) {
+      weeks.push([...wd]);
+      wd = [];
+    }
+  }
+
   const offMap = {};
   empData.forEach(({ key }) => offMap[key] = new Set());
 
-  sorted.forEach(({ key, startDay, availDays, totalOff, daysPerWeek, hireDow }) => {
-    if (totalOff <= 0) return;
+  // 주 단위로 휴무 배정 — 매주 가장 출근 인원 많은 날에 휴무 배치
+  weeks.forEach(wDays => {
+    const wEmp = [];
 
-    // 신규 입사자: 첫 주(입사일 ~ 그 주 일요일) 특별 규칙
-    let firstWeekDays = [], restDays = [...availDays];
-    if (startDay > 1) {
-      const daysToSun = hireDow === 0 ? 0 : (7 - hireDow);
-      const fwEnd = Math.min(daysInMonth, startDay + daysToSun);
-      firstWeekDays = availDays.filter(d => d <= fwEnd);
-      restDays      = availDays.filter(d => d >  fwEnd);
+    empData.forEach(({ key, emp, startDay, daysPerWeek, hireDow }) => {
+      const available = wDays.filter(d => d >= startDay);
+      if (!available.length) return;
 
-      const fwCnt = (daysPerWeek <= 4 ? FW4 : FW5)[hireDow] || 0;
-      // 첫 주: 출근자가 많은 날부터 휴무 배정 (가장 여유 있는 날)
-      [...firstWeekDays].sort((a, b) => dayLoad[b] - dayLoad[a])
-        .slice(0, Math.min(fwCnt, firstWeekDays.length))
+      const offPerWeek = 7 - daysPerWeek;
+      const isHireWeek = startDay > 1 && startDay >= wDays[0] && startDay <= wDays[wDays.length - 1];
+
+      let nOff;
+      if (isHireWeek) {
+        const table = daysPerWeek <= 4 ? FW4 : FW5;
+        nOff = Math.min(table[hireDow] || 0, available.length);
+      } else {
+        nOff = Math.round(available.length * offPerWeek / 7);
+      }
+
+      wEmp.push({ key, available, nOff });
+    });
+
+    // 휴무 많은 직원 먼저 처리 → 균형 자유도 최대화
+    wEmp.sort((a, b) => b.nOff - a.nOff);
+
+    wEmp.forEach(({ key, available, nOff }) => {
+      if (!nOff) return;
+      [...available]
+        .sort((a, b) => dayLoad[b] - dayLoad[a])
+        .slice(0, nOff)
         .forEach(d => { offMap[key].add(d); dayLoad[d]--; });
-    }
-
-    // 나머지 기간: 요일별 비례 배분 + 출근 부하 높은 날 우선 선택
-    const candidates = restDays;
-    const remain = Math.max(0, totalOff - offMap[key].size);
-    if (!remain || !candidates.length) return;
-
-    // 요일별 날짜 분류
-    const byDow = {};
-    for (let i = 0; i <= 6; i++) byDow[i] = [];
-    candidates.forEach(d => byDow[new Date(curY, curM-1, d).getDay()].push(d));
-
-    // 요일별 배분 수 (날짜 수 비례)
-    const dc = {};
-    const rems = [];
-    let asgn = 0;
-    for (let dow = 0; dow <= 6; dow++) {
-      if (!byDow[dow].length) { dc[dow] = 0; continue; }
-      const ex = remain * byDow[dow].length / candidates.length;
-      dc[dow] = Math.floor(ex); asgn += dc[dow];
-      rems.push({ dow, r: ex - dc[dow] });
-    }
-    rems.sort((a, b) => b.r - a.r);
-    let ex2 = remain - asgn;
-    for (const { dow } of rems) {
-      if (!ex2) break;
-      if (byDow[dow].length > dc[dow]) { dc[dow]++; ex2--; }
-    }
-
-    // 각 요일에서 출근 부하 높은 날 순으로 휴무 선택
-    for (let dow = 0; dow <= 6; dow++) {
-      if (!dc[dow] || !byDow[dow].length) continue;
-      [...byDow[dow]].sort((a, b) => dayLoad[b] - dayLoad[a])
-        .slice(0, dc[dow])
-        .forEach(d => { offMap[key].add(d); dayLoad[d]--; });
-    }
+    });
   });
 
   // ══ PHASE 2: 출근시간 배정 — 2일 로테이션 + 당일 스태거 ══
