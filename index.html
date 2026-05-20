@@ -321,7 +321,7 @@ function renderDashboard() {
       const parts = e.hire_date.split('-');
       prefix = String(parts[0]).slice(2) + '.' + parts[1];
     }
-    const tag = prefix ? `${prefix}_${e.name}` : e.name;
+    const tag = prefix ? `${prefix}.${e.name}.${role}` : `${e.name}.${role}`;
     data[e.branch][belt].push({tag, fg:BS[belt]?.fg||'#333'});
   });
   const bt = {};
@@ -474,6 +474,11 @@ function buildTable() {
       lastBranch = emp.branch;
     }
 
+    const empRole = emp.role && emp.role.includes('매니저') ? 'M' : 'B';
+    let empPrefix = '';
+    if (hd2) { const pp = hd2.split('-'); empPrefix = String(pp[0]).slice(2)+'.'+pp[1]; }
+    const empTag = empPrefix ? `${empPrefix}.${emp.name}.${empRole}` : `${emp.name}.${empRole}`;
+
     const bS = BS[belt]||{bg:'#eee',fg:'#333'};
     let workCnt=0, offCnt=0, cells='';
     for (let d=1; d<=days; d++) {
@@ -501,7 +506,7 @@ function buildTable() {
     body += `<tr>
       <td class="td-name"><div class="emp-cell">
         <span class="belt-badge" style="background:${bS.bg};color:${bS.fg}">${belt}</span>
-        <button class="emp-name-btn" onclick="openModal('${key}')">${emp.name}</button>
+        <button class="emp-name-btn" onclick="openModal('${key}')">${empTag}</button>
       </div></td>
       <td class="td-shift">${start}<br>~${end}<br><span style="color:#aaa;font-size:9px">(${hours}h)</span></td>
       ${cells}
