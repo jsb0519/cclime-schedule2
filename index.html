@@ -475,12 +475,15 @@ function buildMonthSchedule(y, m) {
       } else {
         nOff = Math.round(available.length * offPerWeek / 7);
       }
-      wEmp.push({ key, available, nOff });
+      wEmp.push({ key, available, nOff, startDay });
     });
     wEmp.sort((a, b) => b.nOff - a.nOff);
-    wEmp.forEach(({ key, available, nOff }) => {
+    wEmp.forEach(({ key, available, nOff, startDay }) => {
       if (!nOff) return;
-      [...available].sort((a, b) => dayLoad[b] - dayLoad[a]).slice(0, nOff)
+      // 신규 입사자(startDay>1)는 입사일·이후 2일 휴무 제외
+      const noOff = startDay > 1 ? new Set([startDay, startDay+1, startDay+2]) : new Set();
+      const candidates = available.filter(d => !noOff.has(d));
+      [...candidates].sort((a, b) => dayLoad[b] - dayLoad[a]).slice(0, Math.min(nOff, candidates.length))
         .forEach(d => { offMap[key].add(d); dayLoad[d]--; });
     });
   });
