@@ -334,7 +334,7 @@ function onEmployeeData(resp) {
           .catch(e => setStat('⚠️ Firebase 쓰기 실패 [' + (e.code||e.message) + '] — Firebase 콘솔 Rules 탭에서 .read .write 를 true로 설정하세요'));
       } else {
         schData = {};
-        setStat(fbErrCode ? ('⚠️ Firebase 오류 [' + fbErrCode + ']') : 'Firebase 비어있음 — 초기화 버튼을 눌러주세요');
+        setStat(fbErrCode ? ('⚠️ Firebase 오류 [' + fbErrCode + ']') : 'Firebase 비어있음 — 📋 3개월 초기화 버튼을 눌러주세요');
       }
 
       // 신규 직원 항목 추가
@@ -523,7 +523,7 @@ async function renderSchedule() {
   } else if (fbErrCode) {
     setStat('⚠️ Firebase 읽기 오류 [' + fbErrCode + ']');
   } else {
-    setStat('Firebase 비어있음 (업로드 시도 중...) · 로컬 데이터 표시 중');
+    setStat('Firebase 비어있음 — 📋 3개월 초기화 버튼을 눌러 데이터를 생성하세요');
   }
 }
 
