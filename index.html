@@ -469,8 +469,8 @@ function buildMonthSchedule(y, m) {
 
   weeks.forEach(wDays => {
     const wEmp = [];
-    empData.forEach(({ key, emp, startDay, daysPerWeek, hireDow, isHireMonth }) => {
-      const available = wDays.filter(d => d >= startDay);
+    empData.forEach(({ key, emp, startDay, endDay, daysPerWeek, hireDow, isHireMonth }) => {
+      const available = wDays.filter(d => d >= startDay && d <= endDay);
       if (!available.length) return;
       const offPerWeek = 7 - daysPerWeek;
       const isHireWeek = isHireMonth && startDay >= wDays[0] && startDay <= wDays[wDays.length - 1];
@@ -481,12 +481,14 @@ function buildMonthSchedule(y, m) {
       } else {
         nOff = Math.round(available.length * offPerWeek / 7);
       }
-      wEmp.push({ key, available, nOff, startDay, isHireMonth });
+      wEmp.push({ key, available, nOff, startDay, endDay, isHireMonth });
     });
     wEmp.sort((a, b) => b.nOff - a.nOff);
-    wEmp.forEach(({ key, available, nOff, startDay, isHireMonth }) => {
+    wEmp.forEach(({ key, available, nOff, startDay, endDay, isHireMonth }) => {
       if (!nOff) return;
       const noOff = isHireMonth ? new Set([startDay, startDay+1, startDay+2]) : new Set();
+      // 퇴사 당일은 반드시 근무 — 이번 달 퇴사자(endDay < 월말)만 적용
+      if (endDay < daysInMonth) noOff.add(endDay);
       const candidates = available.filter(d => !noOff.has(d));
       [...candidates].sort((a, b) => dayLoad[b] - dayLoad[a]).slice(0, Math.min(nOff, candidates.length))
         .forEach(d => { offMap[key].add(d); dayLoad[d]--; });
