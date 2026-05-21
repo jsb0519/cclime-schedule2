@@ -381,16 +381,18 @@ function loadSchData(y, m) {
 function saveLs(y, m, data) {
   localStorage.setItem(lsKey(y,m), JSON.stringify(data));
 }
+let fbErrCode = null;    // 읽기 오류
+let fbWriteErr = null;   // 쓰기 오류 — 성공 전까지 유지
+
 function syncToFb(y, m, data) {
   return fbDb.ref(`schedule/${fbKey(y,m)}`).set(data)
-    .then(() => true)
-    .catch(e => { throw e; });
+    .then(() => { fbWriteErr = null; return true; })
+    .catch(e => { fbWriteErr = e.code || e.message || '알 수 없음'; throw e; });
 }
 function saveSchData(y, m, data) { // 하위호환 유지용
   saveLs(y, m, data);
   return syncToFb(y, m, data);
 }
-let fbErrCode = null;
 async function fbGetOnce(y, m) {
   try {
     const snap = await fbDb.ref(`schedule/${fbKey(y,m)}`).get();
@@ -515,11 +517,13 @@ async function renderSchedule() {
   }
   buildTable();
   if (fb) {
-    setStat('Firebase 동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+    setStat('✅ Firebase 동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+  } else if (fbWriteErr) {
+    setStat('⚠️ Firebase 쓰기 오류 [' + fbWriteErr + '] — 콘솔 Rules에서 .write: true 설정 필요');
   } else if (fbErrCode) {
-    setStat('⚠️ Firebase 오류 [' + fbErrCode + '] · 로컬 데이터 표시 중');
+    setStat('⚠️ Firebase 읽기 오류 [' + fbErrCode + ']');
   } else {
-    setStat('Firebase 데이터 없음 · 로컬 데이터 표시 중');
+    setStat('Firebase 비어있음 (업로드 시도 중...) · 로컬 데이터 표시 중');
   }
 }
 
@@ -1078,6 +1082,15 @@ async function downloadExcel() {
   URL.revokeObjectURL(a.href);
 }
 
+
+/* ── 시작 시 Firebase 쓰기 가능 여부 즉시 테스트 ── */
+fbDb.ref('_ping').set(Date.now())
+  .then(() => fbDb.ref('_ping').remove())
+  .then(() => { fbWriteErr = null; setStat('✅ Firebase 연결 정상'); })
+  .catch(e => {
+    fbWriteErr = e.code || e.message || '알 수 없음';
+    setStat('⚠️ Firebase 쓰기 불가 [' + fbWriteErr + '] — Firebase 콘솔 → Realtime Database → Rules 탭에서 아래로 교체 후 게시:\n{"rules":{".read":true,".write":true}}');
+  });
 
 loadEmployees();
 setInterval(loadEmployees, 5*60*1000);
