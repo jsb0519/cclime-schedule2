@@ -386,9 +386,17 @@ let fbErrCode = null;    // 읽기 오류
 let fbWriteErr = null;   // 쓰기 오류 — 성공 전까지 유지
 
 function syncToFb(y, m, data) {
-  return fbDb.ref(`schedule/${fbKey(y,m)}`).set(data)
-    .then(() => { fbWriteErr = null; return true; })
-    .catch(e => { fbWriteErr = e.code || e.message || '알 수 없음'; throw e; });
+  const write = fbDb.ref(`schedule/${fbKey(y,m)}`).set(data);
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject({ code: 'TIMEOUT', message: '15초 초과 — 네트워크 또는 데이터 크기 문제' }), 15000)
+  );
+  return Promise.race([write, timeout])
+    .then(() => { fbWriteErr = null; setFbBadge(true, '🟢 Firebase 동기화됨'); return true; })
+    .catch(e => {
+      fbWriteErr = e.code || e.message || '알 수 없음';
+      setFbBadge(false, '🔴 ' + fbWriteErr);
+      throw e;
+    });
 }
 function saveSchData(y, m, data) { // 하위호환 유지용
   saveLs(y, m, data);
