@@ -332,7 +332,7 @@ function onEmployeeData(resp) {
     });
     if (newAdded) {
       saveLs(curY, curM, schData);
-      if (fbListenerAttached && fbRef(curY, curM)) fbRef(curY, curM).set(schData).catch(() => {});
+      if (fbListenerAttached && fbRef(curY, curM)) fbWrite(fbRef(curY, curM), schData).catch(() => {});
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
   } catch(e) {
@@ -373,6 +373,13 @@ function setFbStatus(ok, msg) {
   el.style.background = ok === true ? '#D4EDDA' : ok === false ? '#F8D7DA' : '#eee';
   el.style.color      = ok === true ? '#155724' : ok === false ? '#721C24' : '#888';
 }
+/* 타임아웃 포함 Firebase 쓰기 */
+function fbWrite(ref, data, ms = 8000) {
+  return Promise.race([
+    ref.set(data),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT')), ms))
+  ]);
+}
 
 /* ── 실시간 리스너 ── */
 let fbListenerAttached = false;
@@ -411,9 +418,9 @@ function attachFb(y, m) {
       const ls = loadLs(y, m);
       if (Object.keys(ls).length) {
         setFbStatus(null, '📤 업로드 중...');
-        ref.set(ls)
+        fbWrite(ref, ls)
           .then(() => { setFbStatus(true, '🟢 업로드 완료'); setStat('로컬 데이터 업로드 완료'); })
-          .catch(e => setFbStatus(false, '🔴 업로드 실패: ' + (e.code || e.message)));
+          .catch(e => setFbStatus(false, '🔴 업로드 실패: ' + (e.message || e.code)));
       }
     }
   }, err => {
@@ -659,9 +666,9 @@ function initMonth() {
   if (fbRef(curY,curM)) {
     setFbStatus(null, '📤 동기화 중...');
     Promise.all([
-      fbRef(curY,curM).set(schData),
-      fbRef(ny,nm).set(d1),
-      fbRef(ny2,nm2).set(d2)
+      fbWrite(fbRef(curY,curM), schData),
+      fbWrite(fbRef(ny,nm), d1),
+      fbWrite(fbRef(ny2,nm2), d2)
     ])
       .then(() => {
         setFbStatus(true, '🟢 Firebase 동기화됨');
@@ -689,14 +696,14 @@ function doSave() {
   if (ref) {
     setStat('저장됨 · Firebase 동기화 중...');
     setFbStatus(null, '📤 저장 중...');
-    ref.set(schData)
+    fbWrite(ref, schData)
       .then(() => {
         setFbStatus(true, '🟢 저장 완료');
         setStat('저장 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
       })
       .catch(e => {
-        setFbStatus(false, '🔴 저장 실패: ' + (e.code||e.message));
-        setStat('로컬 저장됨 · Firebase 오류 [' + (e.code||e.message) + ']');
+        setFbStatus(false, '🔴 저장 실패: ' + (e.message||e.code));
+        setStat('로컬 저장됨 · Firebase 오류 [' + (e.message||e.code) + ']');
       });
   } else {
     setStat('저장 완료 (로컬) · ' + new Date().toLocaleTimeString('ko-KR'));
