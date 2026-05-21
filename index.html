@@ -447,7 +447,9 @@ function buildMonthSchedule(y, m) {
 
     const slots = getSlots(storeHours);
     const hireDow = new Date(y, m-1, startDay).getDay();
-    empData.push({ key, emp, startDay, endDay, availDays, daysPerWeek, storeHours, slots, hireDow });
+    const isHireMonth = !!(emp.hire_date && emp.hire_date.length >= 10 &&
+      (() => { const [hy, hm] = emp.hire_date.split('-').map(Number); return hy === y && hm === m; })());
+    empData.push({ key, emp, startDay, endDay, availDays, daysPerWeek, storeHours, slots, hireDow, isHireMonth });
   });
 
   // 월~일 기준 주 목록 구성
@@ -463,11 +465,11 @@ function buildMonthSchedule(y, m) {
 
   weeks.forEach(wDays => {
     const wEmp = [];
-    empData.forEach(({ key, emp, startDay, daysPerWeek, hireDow }) => {
+    empData.forEach(({ key, emp, startDay, daysPerWeek, hireDow, isHireMonth }) => {
       const available = wDays.filter(d => d >= startDay);
       if (!available.length) return;
       const offPerWeek = 7 - daysPerWeek;
-      const isHireWeek = startDay > 1 && startDay >= wDays[0] && startDay <= wDays[wDays.length - 1];
+      const isHireWeek = isHireMonth && startDay >= wDays[0] && startDay <= wDays[wDays.length - 1];
       let nOff;
       if (isHireWeek) {
         const table = daysPerWeek <= 4 ? FW4 : FW5;
@@ -475,13 +477,12 @@ function buildMonthSchedule(y, m) {
       } else {
         nOff = Math.round(available.length * offPerWeek / 7);
       }
-      wEmp.push({ key, available, nOff, startDay });
+      wEmp.push({ key, available, nOff, startDay, isHireMonth });
     });
     wEmp.sort((a, b) => b.nOff - a.nOff);
-    wEmp.forEach(({ key, available, nOff, startDay }) => {
+    wEmp.forEach(({ key, available, nOff, startDay, isHireMonth }) => {
       if (!nOff) return;
-      // 신규 입사자(startDay>1)는 입사일·이후 2일 휴무 제외
-      const noOff = startDay > 1 ? new Set([startDay, startDay+1, startDay+2]) : new Set();
+      const noOff = isHireMonth ? new Set([startDay, startDay+1, startDay+2]) : new Set();
       const candidates = available.filter(d => !noOff.has(d));
       [...candidates].sort((a, b) => dayLoad[b] - dayLoad[a]).slice(0, Math.min(nOff, candidates.length))
         .forEach(d => { offMap[key].add(d); dayLoad[d]--; });
