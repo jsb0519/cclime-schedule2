@@ -343,6 +343,22 @@ function onEmployeeData(resp) {
 /* ── Firebase SDK + localStorage 스케줄 저장/로드 ── */
 function lsKey(y, m) { return `cclime_sch_${y}_${String(m).padStart(2,'0')}`; }
 
+/* Firebase는 배열을 {0:v, 1:v, ...} 객체로 변환해서 반환 — 다시 배열로 복원 */
+function toArr(v) { return Array.isArray(v) ? v : (v && typeof v==='object' ? Object.values(v) : []); }
+function normEntry(e) {
+  if (!e || typeof e !== 'object') return e;
+  const r = Object.assign({}, e);
+  if ('off_days'    in r) r.off_days    = toArr(r.off_days).map(Number);
+  if ('shift_slots' in r) r.shift_slots = toArr(r.shift_slots);
+  return r;
+}
+function normSchData(data) {
+  if (!data || typeof data !== 'object') return {};
+  const r = {};
+  for (const k of Object.keys(data)) r[k] = normEntry(data[k]);
+  return r;
+}
+
 function loadSchData(y, m) {
   try { return JSON.parse(localStorage.getItem(lsKey(y,m)) || '{}'); } catch { return {}; }
 }
@@ -352,7 +368,7 @@ async function saveSchData(y, m, data) {
 }
 async function fbGetOnce(y, m) {
   const snap = await fbDb.ref(`schedule/${fbKey(y,m)}`).get();
-  return snap.val();
+  return normSchData(snap.val());
 }
 
 /* ── 실시간 리스너 — Firebase 변경 즉시 반영 ── */
@@ -361,8 +377,8 @@ function attachFbListener(y, m) {
   if (fbUnsubscribe) { fbUnsubscribe(); fbUnsubscribe = null; }
   const ref = fbDb.ref(`schedule/${fbKey(y,m)}`);
   const handler = ref.on('value', snap => {
-    const fb = snap.val();
-    if (!fb || typeof fb !== 'object') return;
+    const fb = normSchData(snap.val());
+    if (!fb || !Object.keys(fb).length) return;
     if (dirty) return;
     if (JSON.stringify(fb) === JSON.stringify(schData)) return;
     localStorage.setItem(lsKey(y, m), JSON.stringify(fb));
@@ -371,6 +387,8 @@ function attachFbListener(y, m) {
       buildTable();
       setStat('실시간 동기화됨 · ' + new Date().toLocaleTimeString('ko-KR'));
     }
+  }, err => {
+    setStat('⚠️ Firebase 연결 오류 [' + err.code + '] — Firebase 콘솔에서 Rules를 확인하세요');
   });
   fbUnsubscribe = () => ref.off('value', handler);
 }
@@ -621,7 +639,7 @@ async function initMonth() {
     buildTable();
     setStat(`${curY}년 ${curM}월·${nm}월·${nm2}월 초기화 완료`);
   } catch(e) {
-    setStat('⚠️ Firebase 저장 실패 (' + e.message + ')');
+    setStat('⚠️ Firebase 저장 실패 [' + (e.code||e.message) + '] — Firebase 콘솔 Rules를 확인하세요');
   }
 }
 
@@ -639,7 +657,7 @@ async function doSave() {
     dirty = false;
     setStat('저장 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
   } catch(e) {
-    setStat('⚠️ Firebase 저장 실패 — 네트워크를 확인하세요 (' + e.message + ')');
+    setStat('⚠️ Firebase 저장 실패 [' + (e.code||e.message) + '] — Firebase 콘솔 Rules를 확인하세요');
   }
 }
 
