@@ -316,24 +316,28 @@ function onEmployeeData(resp) {
 
     // 신규 직원 자동 스케줄 생성 (Firebase 최신 데이터 반영 후 처리)
     (async () => {
-      setStat('Firebase 동기화 중...');
       attachFbListener(curY, curM);
+      // Firebase에서 최신 데이터 읽기 — 실패해도 localStorage로 폴백
       const fb = await fbGetOnce(curY, curM);
-      if (fb && typeof fb === 'object') localStorage.setItem(lsKey(curY, curM), JSON.stringify(fb));
+      if (fb) {
+        localStorage.setItem(lsKey(curY, curM), JSON.stringify(fb));
+        setStat('Firebase 동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+      } else {
+        setStat('로컬 데이터 사용 중 (Firebase 연결 불가)');
+      }
       const tmpSch = loadSchData(curY, curM);
       let newAdded = false;
       employees.forEach(emp => {
         const key = emp.branch+'||'+emp.name;
         if (!tmpSch[key]) { tmpSch[key]=mkEntry(emp); newAdded=true; }
       });
-      if (newAdded) { schData=tmpSch; saveSchData(curY, curM, schData); }
-      else { schData = tmpSch; }
-      if (document.getElementById('view-schedule').classList.contains('active')) {
-        buildTable();
-        setStat('동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
-      } else {
-        setStat('동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
-      }
+      if (newAdded) {
+        schData = tmpSch;
+        saveSchData(curY, curM, schData).catch(e =>
+          setStat('⚠️ Firebase 저장 실패 [' + (e.code||e.message) + '] — Firebase 콘솔 Rules를 확인하세요')
+        );
+      } else { schData = tmpSch; }
+      if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
     })();
   } catch(e) {
     setStat('파싱 오류: ' + e.message);
@@ -367,8 +371,11 @@ async function saveSchData(y, m, data) {
   await fbDb.ref(`schedule/${fbKey(y,m)}`).set(data);
 }
 async function fbGetOnce(y, m) {
-  const snap = await fbDb.ref(`schedule/${fbKey(y,m)}`).get();
-  return normSchData(snap.val());
+  try {
+    const snap = await fbDb.ref(`schedule/${fbKey(y,m)}`).get();
+    const data = normSchData(snap.val());
+    return Object.keys(data).length ? data : null; // 빈 객체는 null로 반환
+  } catch { return null; }
 }
 
 /* ── 실시간 리스너 — Firebase 변경 즉시 반영 ── */
@@ -473,17 +480,16 @@ function renderDashboard() {
 /* ── Schedule 렌더 ── */
 async function renderSchedule() {
   document.getElementById('month-lbl').textContent = `${curY}년 ${curM}월`;
-  setStat('동기화 중...');
   attachFbListener(curY, curM);
-  const fb = await fbGetOnce(curY, curM);
-  if (fb && typeof fb === 'object') {
+  const fb = await fbGetOnce(curY, curM); // 실패 시 null 반환 (예외 없음)
+  if (fb) {
     localStorage.setItem(lsKey(curY, curM), JSON.stringify(fb));
     schData = fb;
   } else {
-    schData = loadSchData(curY, curM);
+    schData = loadSchData(curY, curM); // Firebase 불가 → localStorage 사용
   }
   buildTable();
-  setStat('동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+  setStat(fb ? ('동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR')) : '로컬 데이터 표시 중');
 }
 
 /* ── 월 스케줄 생성 (y년 m월) ── */
