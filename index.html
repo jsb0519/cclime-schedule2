@@ -158,6 +158,7 @@ const GID      = '0';
 const BELT_ORDER = ['골드','실버','블랙','레드','블루','퍼플','옐로우','화이트','실습생'];
 const BELT_HOURS = {골드:10,실버:10,블랙:10,레드:9,블루:9,퍼플:8,옐로우:8,화이트:8,실습생:8};
 const DEFAULT_START = '10:00';
+const FB_URL = 'https://cclime-schedule-cb047-default-rtdb.asia-southeast1.firebasedatabase.app';
 const BS = {
   골드:{bg:'#FFF3CD',fg:'#856404'}, 실버:{bg:'#E2E3E5',fg:'#383D41'},
   블랙:{bg:'#546E7A',fg:'#FFFFFF'}, 레드:{bg:'#F8D7DA',fg:'#721C24'},
@@ -304,29 +305,51 @@ function onEmployeeData(resp) {
     const exitCount = employees.filter(e => e.exit_date).length;
     setStat(`최종: ${new Date().toLocaleTimeString('ko-KR')} · 퇴사예정 ${exitCount}명 감지`);
 
-    // 신규 직원 자동 스케줄 생성
-    const tmpSch = loadSchData(curY, curM);
-    let newAdded = false;
-    employees.forEach(emp => {
-      const key = emp.branch+'||'+emp.name;
-      if (!tmpSch[key]) { tmpSch[key]=mkEntry(emp); newAdded=true; }
-    });
-    if (newAdded) { schData=tmpSch; saveSchData(curY, curM, schData); }
-
-    if (document.getElementById('view-schedule').classList.contains('active'))
-      renderSchedule();
+    // 신규 직원 자동 스케줄 생성 (Firebase 최신 데이터 반영 후 처리)
+    (async () => {
+      setStat('Firebase 동기화 중...');
+      await syncFromFb(curY, curM);
+      const tmpSch = loadSchData(curY, curM);
+      let newAdded = false;
+      employees.forEach(emp => {
+        const key = emp.branch+'||'+emp.name;
+        if (!tmpSch[key]) { tmpSch[key]=mkEntry(emp); newAdded=true; }
+      });
+      if (newAdded) { schData=tmpSch; saveSchData(curY, curM, schData); }
+      else { schData = tmpSch; }
+      if (document.getElementById('view-schedule').classList.contains('active')) {
+        buildTable();
+        setStat('동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+      } else {
+        setStat('동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+      }
+    })();
   } catch(e) {
     setStat('파싱 오류: ' + e.message);
   }
 }
 
-/* ── localStorage 스케줄 저장/로드 ── */
+/* ── Firebase + localStorage 스케줄 저장/로드 ── */
 function lsKey(y, m) { return `cclime_sch_${y}_${String(m).padStart(2,'0')}`; }
+function fbPath(y, m) { return `${FB_URL}/schedule/${y}_${String(m).padStart(2,'0')}.json`; }
+
 function loadSchData(y, m) {
   try { return JSON.parse(localStorage.getItem(lsKey(y,m)) || '{}'); } catch { return {}; }
 }
 function saveSchData(y, m, data) {
   localStorage.setItem(lsKey(y,m), JSON.stringify(data));
+  fetch(fbPath(y,m), { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) })
+    .catch(e => console.warn('Firebase 저장 실패:', e));
+}
+async function syncFromFb(y, m) {
+  try {
+    const res = await fetch(fbPath(y,m));
+    if (!res.ok) return false;
+    const fb = await res.json();
+    if (!fb || typeof fb !== 'object') return false;
+    localStorage.setItem(lsKey(y,m), JSON.stringify(fb));
+    return true;
+  } catch { return false; }
 }
 
 /* ── 공휴일 ── */
@@ -407,10 +430,13 @@ function renderDashboard() {
 }
 
 /* ── Schedule 렌더 ── */
-function renderSchedule() {
+async function renderSchedule() {
   document.getElementById('month-lbl').textContent = `${curY}년 ${curM}월`;
+  setStat('동기화 중...');
+  await syncFromFb(curY, curM);
   schData = loadSchData(curY, curM);
   buildTable();
+  setStat('동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
 }
 
 /* ── 월 스케줄 생성 (y년 m월) ── */
@@ -963,6 +989,24 @@ async function downloadExcel() {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+/* ── 30초마다 Firebase 자동 동기화 ── */
+setInterval(async () => {
+  if (!document.getElementById('view-schedule').classList.contains('active')) return;
+  if (dirty) return; // 미저장 변경사항 있으면 스킵
+  try {
+    const res = await fetch(fbPath(curY, curM));
+    if (!res.ok) return;
+    const fb = await res.json();
+    if (!fb || typeof fb !== 'object') return;
+    if (JSON.stringify(fb) !== JSON.stringify(loadSchData(curY, curM))) {
+      localStorage.setItem(lsKey(curY, curM), JSON.stringify(fb));
+      schData = fb;
+      buildTable();
+      setStat('자동 동기화됨 · ' + new Date().toLocaleTimeString('ko-KR'));
+    }
+  } catch {}
+}, 30000);
 
 loadEmployees();
 setInterval(loadEmployees, 5*60*1000);
