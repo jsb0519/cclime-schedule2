@@ -84,7 +84,10 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .btn-cancel{padding:8px 16px;background:#fff;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer}
 .btn-ok{padding:8px 16px;background:#4F46E5;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
 .stat-text{font-size:12px;color:#aaa;margin-left:auto}
+.btn-excel{padding:6px 13px;background:#fff;color:#217346;border:1px solid #217346;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-excel:hover{background:#E8F5E9}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
 
@@ -121,6 +124,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <button class="nav-btn" onclick="nextMonth()">▶</button>
     <button class="btn-init" onclick="initMonth()">📋 이달+다음달 초기화</button>
     <button class="btn-save" onclick="doSave()">💾 저장</button>
+    <button class="btn-excel" onclick="downloadExcel()">⬇ 엑셀 다운로드</button>
     <span style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 설정 &nbsp;|&nbsp; 날짜 클릭 → 근무↔휴무 전환</span>
   </div>
   <div class="sch-outer">
@@ -788,6 +792,169 @@ function populateBranches() {
   if (cur && branches.includes(cur)) sel.value = cur;
 }
 function setStat(msg) { document.getElementById('stat-text').textContent = msg; }
+
+/* ── 엑셀 다운로드 ── */
+async function downloadExcel() {
+  const days = new Date(curY, curM, 0).getDate();
+  const holidays = getHolidays(curY);
+
+  let emps = employees.slice();
+  emps = emps.filter(e => {
+    if (!e.exit_date || e.exit_date.length < 10) return true;
+    const [ey, em] = e.exit_date.split('-').map(Number);
+    return !(ey < curY || (ey === curY && em < curM));
+  });
+  emps.sort((a,b) => {
+    const ba=parseInt(a.branch)||999, bb=parseInt(b.branch)||999;
+    if (ba!==bb) return ba-bb;
+    return (BELT_ORDER.indexOf(a.belt)??8)-(BELT_ORDER.indexOf(b.belt)??8);
+  });
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(`${curY}년${curM}월`);
+
+  // 열 너비
+  ws.getColumn(1).width = 10;  // 지점
+  ws.getColumn(2).width = 14;  // 이름
+  ws.getColumn(3).width = 7;   // 벨트
+  for (let d = 1; d <= days; d++) ws.getColumn(d + 3).width = 10;
+  ws.getColumn(days + 4).width = 7;  // 총 근무
+  ws.getColumn(days + 5).width = 7;  // 총 휴무
+
+  // 제목 행
+  const titleRow = ws.addRow([`끌리메 근무표 ${curY}년 ${curM}월`]);
+  ws.mergeCells(1, 1, 1, days + 5);
+  Object.assign(titleRow.getCell(1), {
+    font: { bold: true, size: 14, color: { argb: 'FFFFFFFF' } },
+    alignment: { horizontal: 'center', vertical: 'middle' },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1a1a2e' } }
+  });
+  titleRow.height = 24;
+
+  // 헤더 행
+  const hdCols = ['지점', '이름', '벨트'];
+  for (let d = 1; d <= days; d++) {
+    const dow = new Date(curY, curM-1, d).getDay();
+    const hkey = String(curM).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    const dowName = ['일','월','화','수','목','금','토'][dow];
+    const isHol = hkey in holidays;
+    hdCols.push(`${d}\n${dowName}${isHol ? '\n공휴일' : ''}`);
+  }
+  hdCols.push('근무', '휴무');
+  const hdrRow = ws.addRow(hdCols);
+  hdrRow.height = 32;
+  hdrRow.eachCell((cell, colN) => {
+    const dow = colN >= 4 && colN <= days + 3 ? new Date(curY, curM-1, colN-3).getDay() : -1;
+    const hkey = colN >= 4 && colN <= days + 3
+      ? String(curM).padStart(2,'0') + '-' + String(colN-3).padStart(2,'0') : '';
+    const isHol = hkey && (hkey in holidays);
+    let bg = 'FF1a1a2e';
+    if (isHol) bg = 'FFC62828';
+    else if (dow === 0) bg = 'FF922B21';
+    else if (dow === 6) bg = 'FF1A5276';
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = { bottom: { style: 'thin', color: { argb: 'FF444444' } } };
+  });
+
+  // 데이터 행
+  const branchCounter = {};
+  const branchPosMap = {};
+  emps.forEach(e => {
+    const k = e.branch + '||' + e.name;
+    branchCounter[e.branch] = branchCounter[e.branch] || 0;
+    branchPosMap[k] = branchCounter[e.branch]++;
+  });
+
+  let lastBranch = null;
+  const WORK_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFE8F5E9' } };
+  const OFF_FILL  = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFF3E0' } };
+  const NONE_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF5F5F5' } };
+  const BRANCH_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFE8EAF6' } };
+
+  emps.forEach(emp => {
+    const key = emp.branch + '||' + emp.name;
+    const sd   = schData[key] || {};
+    const belt = sd.belt || emp.belt || '화이트';
+    const hours = sd.shift_hours || (BELT_HOURS[belt]||8) + 1;
+    const slots = (sd.shift_slots && sd.shift_slots.length) ? sd.shift_slots : getSlots(hours);
+    const offs  = sd.off_days || [];
+    const hd2   = sd.hire_date || emp.hire_date || '';
+    const exitDate = sd.exit_date || emp.exit_date || '';
+    const ROT_INT = sd.rotation_interval || 2;
+    const basePos = sd.shift_base_offset !== undefined ? sd.shift_base_offset : (branchPosMap[key] || 0);
+
+    // 지점 구분 행
+    if (emp.branch !== lastBranch) {
+      const brRow = ws.addRow([`📍 ${emp.branch}`, '', '', ...Array(days + 2).fill('')]);
+      ws.mergeCells(brRow.number, 1, brRow.number, days + 5);
+      brRow.getCell(1).fill = BRANCH_FILL;
+      brRow.getCell(1).font = { bold: true, size: 11, color: { argb: 'FF3949AB' } };
+      brRow.getCell(1).alignment = { vertical: 'middle' };
+      brRow.height = 18;
+      lastBranch = emp.branch;
+    }
+
+    const rowData = [emp.branch, emp.name, belt];
+    const cellStyles = [null, null, null];
+    let workCnt = 0, offCnt = 0;
+
+    for (let d = 1; d <= days; d++) {
+      let beforeHire = false, afterExit = false;
+      if (hd2 && hd2.length >= 10) {
+        const [hy,hm,hdd] = hd2.split('-').map(Number);
+        if (curY<hy||(curY===hy&&curM<hm)||(curY===hy&&curM===hm&&d<hdd)) beforeHire=true;
+      }
+      if (exitDate && exitDate.length >= 10) {
+        const [ey,em,edd] = exitDate.split('-').map(Number);
+        if (curY>ey||(curY===ey&&curM>em)||(curY===ey&&curM===em&&d>edd)) afterExit=true;
+      }
+
+      if (beforeHire || afterExit) {
+        rowData.push('—');
+        cellStyles.push(NONE_FILL);
+      } else if (offs.includes(d)) {
+        offCnt++;
+        rowData.push('휴무');
+        cellStyles.push(OFF_FILL);
+      } else {
+        workCnt++;
+        const rot = Math.floor((d - 1) / ROT_INT);
+        const ds = (sd.shift_starts && sd.shift_starts[String(d)]) || slots[(basePos + rot) % slots.length];
+        const de = addHours(ds, hours);
+        rowData.push(`${ds}~${de}`);
+        cellStyles.push(WORK_FILL);
+      }
+    }
+    rowData.push(workCnt, offCnt);
+    cellStyles.push(null, null);
+
+    const dataRow = ws.addRow(rowData);
+    dataRow.height = 16;
+    dataRow.eachCell((cell, colN) => {
+      const style = cellStyles[colN - 1];
+      if (style) cell.fill = style;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.font = { size: 9 };
+      cell.border = {
+        bottom: { style: 'hair', color: { argb: 'FFE0E0E0' } },
+        right:  { style: 'hair', color: { argb: 'FFE0E0E0' } }
+      };
+      // 이름·지점은 좌측 정렬
+      if (colN <= 2) cell.alignment = { horizontal: 'left', vertical: 'middle' };
+    });
+  });
+
+  // 다운로드
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `끌리메_근무표_${curY}년${String(curM).padStart(2,'0')}월.xlsx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 loadEmployees();
 setInterval(loadEmployees, 5*60*1000);
