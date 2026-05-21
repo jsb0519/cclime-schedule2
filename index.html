@@ -87,8 +87,8 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .btn-excel{padding:6px 13px;background:#fff;color:#217346;border:1px solid #217346;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
 .btn-excel:hover{background:#E8F5E9}
 </style>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10/firebase-app-compat.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10/firebase-database-compat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
@@ -378,12 +378,17 @@ function saveSchData(y, m, data) { // 하위호환 유지용
   saveLs(y, m, data);
   return syncToFb(y, m, data);
 }
+let fbErrCode = null;
 async function fbGetOnce(y, m) {
   try {
     const snap = await fbDb.ref(`schedule/${fbKey(y,m)}`).get();
+    fbErrCode = null;
     const data = normSchData(snap.val());
-    return Object.keys(data).length ? data : null; // 빈 객체는 null로 반환
-  } catch { return null; }
+    return Object.keys(data).length ? data : null;
+  } catch(e) {
+    fbErrCode = e.code || e.message || '알 수 없는 오류';
+    return null;
+  }
 }
 
 /* ── 실시간 리스너 — Firebase 변경 즉시 반영 ── */
@@ -489,15 +494,21 @@ function renderDashboard() {
 async function renderSchedule() {
   document.getElementById('month-lbl').textContent = `${curY}년 ${curM}월`;
   attachFbListener(curY, curM);
-  const fb = await fbGetOnce(curY, curM); // 실패 시 null 반환 (예외 없음)
+  const fb = await fbGetOnce(curY, curM);
   if (fb) {
     localStorage.setItem(lsKey(curY, curM), JSON.stringify(fb));
     schData = fb;
   } else {
-    schData = loadSchData(curY, curM); // Firebase 불가 → localStorage 사용
+    schData = loadSchData(curY, curM);
   }
   buildTable();
-  setStat(fb ? ('동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR')) : '로컬 데이터 표시 중');
+  if (fb) {
+    setStat('Firebase 동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+  } else if (fbErrCode) {
+    setStat('⚠️ Firebase 오류 [' + fbErrCode + '] · 로컬 데이터 표시 중');
+  } else {
+    setStat('Firebase 데이터 없음 · 로컬 데이터 표시 중');
+  }
 }
 
 /* ── 월 스케줄 생성 (y년 m월) ── */
