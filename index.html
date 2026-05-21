@@ -172,16 +172,19 @@ async function fbGet(y, m) {
   try {
     const r = await fetchTimed(fbUrl(y, m));
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    return normFbData(await r.json());
+    return fromFbData(await r.json());
   } catch(e) { return null; }
 }
 async function fbSet(y, m, data) {
   const r = await fetchTimed(fbUrl(y, m), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+    body: JSON.stringify(toFbData(data))
   });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
+  if (!r.ok) {
+    const msg = await r.text().catch(() => '');
+    throw new Error('HTTP ' + r.status + (msg ? ': ' + msg.slice(0,80) : ''));
+  }
 }
 const BS = {
   골드:{bg:'#FFF3CD',fg:'#856404'}, 실버:{bg:'#E2E3E5',fg:'#383D41'},
@@ -337,7 +340,7 @@ function onEmployeeData(resp) {
     });
     if (newAdded) {
       saveLs(curY, curM, schData);
-      if (fbListenerAttached) fbSet(curY, curM, schData).catch(() => {});
+      if (fbListenerAttached) fbSet(curY, curM, schData).catch(() => {});  // toFbData는 fbSet 내부에서 처리
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
   } catch(e) {
@@ -355,7 +358,7 @@ function saveLs(y, m, data) {
 }
 
 /* ── Firebase 유틸 ── */
-/* Firebase는 배열을 {0:v, 1:v, ...} 객체로 저장 → JS 배열로 복원 */
+/* Firebase 배열 복원 */
 function toArr(v) { return Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []); }
 function normEntry(e) {
   if (!e || typeof e !== 'object') return e;
@@ -364,10 +367,21 @@ function normEntry(e) {
   if ('shift_slots' in r) r.shift_slots = toArr(r.shift_slots);
   return r;
 }
-function normFbData(raw) {
+/* Firebase 금지 문자(. # $ [ ] /)를 _ 로 치환한 키로 저장.
+   읽을 때는 값 안의 branch+name으로 원본 키를 복원. */
+function toFbData(data) {
+  const r = {};
+  for (const [k, v] of Object.entries(data))
+    r[k.replace(/[\.#\$\[\]\/]/g, '_')] = v;
+  return r;
+}
+function fromFbData(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const r = {};
-  for (const k of Object.keys(raw)) r[k] = normEntry(raw[k]);
+  for (const v of Object.values(raw)) {
+    const e = normEntry(v);
+    if (e && e.branch && e.name) r[e.branch + '||' + e.name] = e;
+  }
   return Object.keys(r).length ? r : null;
 }
 
@@ -379,50 +393,45 @@ function setFbStatus(ok, msg) {
   el.style.color      = ok === true ? '#155724' : ok === false ? '#721C24' : '#888';
 }
 
-/* ── 5초 폴링으로 다른 기기 변경 감지 ── */
+/* ── 5초 폴링 (읽기 전용 — 쓰기는 doSave/initMonth만) ── */
 let fbListenerAttached = false;
+let fbPollBusy = false;
 let fbPollTimer = null;
 function stopFbPoll() {
-  if (fbPollTimer) { clearInterval(fbPollTimer); fbPollTimer = null; fbListenerAttached = false; }
+  if (fbPollTimer) { clearInterval(fbPollTimer); fbPollTimer = null; }
+  fbListenerAttached = false; fbPollBusy = false;
 }
-async function attachFb(y, m) {
+function attachFb(y, m) {
   stopFbPoll();
   setFbStatus(null, '🔄 연결 중...');
   const poll = async () => {
-    const fb = await fbGet(y, m);
-    if (fb) {
-      fbListenerAttached = true;
-      setFbStatus(true, '🟢 동기화됨');
-      if (JSON.stringify(fb) !== JSON.stringify(schData)) {
-        schData = fb;
-        saveLs(y, m, schData);
-        if (!dirty && document.getElementById('view-schedule').classList.contains('active')) {
-          buildTable();
-          setStat('다른 기기 변경 반영됨 · ' + new Date().toLocaleTimeString('ko-KR'));
+    if (fbPollBusy) return;
+    fbPollBusy = true;
+    try {
+      const fb = await fbGet(y, m);
+      if (fb) {
+        fbListenerAttached = true;
+        setFbStatus(true, '🟢 동기화됨');
+        if (JSON.stringify(fb) !== JSON.stringify(schData)) {
+          schData = fb;
+          saveLs(y, m, schData);
+          if (!dirty && document.getElementById('view-schedule').classList.contains('active')) {
+            buildTable();
+            setStat('다른 기기 변경 반영됨 · ' + new Date().toLocaleTimeString('ko-KR'));
+          }
         }
       } else {
-        setStat('동기화됨 · ' + new Date().toLocaleTimeString('ko-KR'));
+        setFbStatus(null, '⚪ Firebase 비어있음 — 📋 3개월 초기화 필요');
+        setStat('Firebase 비어있음 — 📋 3개월 초기화를 눌러주세요');
       }
-    } else {
-      // Firebase 비어있음 → 로컬 데이터 업로드
-      setFbStatus(null, '⚪ Firebase 비어있음');
-      setStat('Firebase 비어있음 — 📋 3개월 초기화를 눌러주세요');
-      const ls = loadLs(y, m);
-      if (Object.keys(ls).length) {
-        setFbStatus(null, '📤 업로드 중...');
-        try {
-          await fbSet(y, m, ls);
-          setFbStatus(true, '🟢 업로드 완료');
-          setStat('로컬 데이터 Firebase에 업로드 완료');
-          fbListenerAttached = true;
-        } catch(e) {
-          setFbStatus(false, '🔴 업로드 실패: ' + e.message);
-        }
-      }
+    } catch(e) {
+      setFbStatus(false, '🔴 연결 오류');
+    } finally {
+      fbPollBusy = false;
     }
   };
-  await poll();             // 즉시 1회
-  fbPollTimer = setInterval(poll, 5000);  // 이후 5초마다
+  poll();
+  fbPollTimer = setInterval(poll, 5000);
 }
 
 /* ── 공휴일 ── */
