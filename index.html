@@ -83,6 +83,15 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .btn-ok{padding:8px 16px;background:#4F46E5;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
 .stat-text{font-size:12px;color:#aaa;margin-left:auto}
 .btn-excel{padding:6px 13px;background:#fff;color:#217346;border:1px solid #217346;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+/* ─ Stats ─ */
+.stat-row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.stat-card{border-radius:10px;padding:12px 16px;box-shadow:0 2px 6px rgba(0,0,0,.08);flex:1;min-width:100px;background:#fff}
+.stat-card .slbl{font-size:11px;font-weight:600;color:#888;margin-bottom:2px}
+.stat-card .sval{font-size:22px;font-weight:800;color:#1a1a2e;line-height:1.1}
+.stat-card .ssub{font-size:10px;color:#aaa;margin-top:3px}
+.sval-pos{color:#059669}
+.sval-neg{color:#DC2626}
+.sval-warn{color:#D97706}
 .btn-excel:hover{background:#E8F5E9}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
@@ -108,6 +117,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <button class="btn-refresh" onclick="loadEmployees()">↻ 새로고침</button>
   </div>
   <div class="summary" id="dash-summary"></div>
+  <div class="stat-row" id="dash-stats"></div>
   <div class="tbl-wrap" id="dash-wrap"><div style="text-align:center;padding:40px;color:#aaa">⏳ 로딩 중...</div></div>
 </div>
 
@@ -440,6 +450,64 @@ function getHolidays(y) {
   return result;
 }
 
+/* ── 통계 계산 ── */
+function calcStats() {
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth() + 1;
+
+  // 현재 재직자 (exit_date 없거나 이번달 이후)
+  const current = employees.filter(e => {
+    if (!e.exit_date || e.exit_date.length < 7) return true;
+    const [ey, em] = e.exit_date.split('-').map(Number);
+    return !(ey < y || (ey === y && em < m));
+  });
+
+  // 당월 입사자
+  const hired = employees.filter(e => {
+    if (!e.hire_date || e.hire_date.length < 7) return false;
+    const [hy, hm] = e.hire_date.split('-').map(Number);
+    return hy === y && hm === m;
+  });
+
+  // 당월 퇴사자
+  const exited = employees.filter(e => {
+    if (!e.exit_date || e.exit_date.length < 7) return false;
+    const [ey, em] = e.exit_date.split('-').map(Number);
+    return ey === y && em === m;
+  });
+
+  // 평균 재직인원 = (월초인원 + 월말인원) / 2
+  const monthStart = Math.max(0, current.length + exited.length - hired.length);
+  const avg = (monthStart + current.length) / 2 || current.length || 1;
+
+  // 당월 퇴사율
+  const turnover1m = exited.length / avg * 100;
+
+  // 최근 3개월 퇴사자 (이번달 포함)
+  const [y3, m3] = (() => { const d = new Date(y, m - 3, 1); return [d.getFullYear(), d.getMonth() + 1]; })();
+  const exited3m = employees.filter(e => {
+    if (!e.exit_date || e.exit_date.length < 7) return false;
+    const [ey, em] = e.exit_date.split('-').map(Number);
+    const ym = ey * 12 + em, from = y3 * 12 + m3, to = y * 12 + m;
+    return ym >= from && ym <= to;
+  });
+  const turnover3m = exited3m.length / avg * 100;
+
+  // 평균 근속기간 (월 단위)
+  const withHire = current.filter(e => e.hire_date && e.hire_date.length >= 7);
+  const avgMonths = withHire.length
+    ? withHire.reduce((s, e) => {
+        const [hy, hm, hd='1'] = e.hire_date.split('-');
+        const ms = today - new Date(+hy, +hm - 1, +hd);
+        return s + ms / (1000 * 60 * 60 * 24 * 30.44);
+      }, 0) / withHire.length
+    : 0;
+
+  return { hired: hired.length, exited: exited.length,
+           net: hired.length - exited.length,
+           turnover1m, turnover3m, avgMonths, currentCount: current.length };
+}
+
 /* ── Dashboard 렌더 ── */
 function renderDashboard() {
   const today = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
@@ -473,6 +541,42 @@ function renderDashboard() {
     sm += `<div class="card" style="background:${s.bg};color:${s.fg}"><div class="lbl">${belt}</div><div class="val">${bt[belt]}</div></div>`;
   });
   document.getElementById('dash-summary').innerHTML = sm;
+
+  /* 통계 카드 */
+  const st = calcStats();
+  const netCls = st.net > 0 ? 'sval-pos' : st.net < 0 ? 'sval-neg' : '';
+  const netSign = st.net > 0 ? '+' : '';
+  const t1Cls = st.turnover1m >= 5 ? 'sval-neg' : st.turnover1m >= 2 ? 'sval-warn' : 'sval-pos';
+  const t3Cls = st.turnover3m >= 10 ? 'sval-neg' : st.turnover3m >= 5 ? 'sval-warn' : 'sval-pos';
+  const tenureStr = st.avgMonths < 12
+    ? `${Math.round(st.avgMonths)}개월`
+    : `${Math.floor(st.avgMonths/12)}년 ${Math.round(st.avgMonths%12)}개월`;
+  document.getElementById('dash-stats').innerHTML = `
+    <div class="stat-card">
+      <div class="slbl">당월 입사자</div>
+      <div class="sval ${netCls}">${netSign}${st.net}</div>
+      <div class="ssub">입사 ${st.hired}명 · 퇴사 ${st.exited}명</div>
+    </div>
+    <div class="stat-card">
+      <div class="slbl">당월 퇴사자</div>
+      <div class="sval">${st.exited}명</div>
+      <div class="ssub">재직 ${st.currentCount}명 기준</div>
+    </div>
+    <div class="stat-card">
+      <div class="slbl">당월 퇴사율</div>
+      <div class="sval ${t1Cls}">${st.turnover1m.toFixed(1)}%</div>
+      <div class="ssub">퇴사 ${st.exited} / 평균재직 ${((st.currentCount + st.exited - st.hired + st.currentCount)/2).toFixed(0)}명</div>
+    </div>
+    <div class="stat-card">
+      <div class="slbl">3개월 퇴사율</div>
+      <div class="sval ${t3Cls}">${st.turnover3m.toFixed(1)}%</div>
+      <div class="ssub">최근 3개월 퇴사 ${Math.round(st.turnover3m * ((st.currentCount + st.exited - st.hired + st.currentCount)/2) / 100)}명</div>
+    </div>
+    <div class="stat-card">
+      <div class="slbl">평균 근속기간</div>
+      <div class="sval" style="font-size:18px">${tenureStr}</div>
+      <div class="ssub">입사일 있는 ${employees.filter(e=>e.hire_date&&e.hire_date.length>=7).length}명 기준</div>
+    </div>`;
 
   const beltTh = BELT_ORDER.map(b => {
     const s = BS[b]||{bg:'#555',fg:'#fff'};
