@@ -338,8 +338,7 @@ function loadSchData(y, m) {
 }
 function saveSchData(y, m, data) {
   localStorage.setItem(lsKey(y,m), JSON.stringify(data));
-  fetch(fbPath(y,m), { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) })
-    .catch(e => console.warn('Firebase 저장 실패:', e));
+  return fetch(fbPath(y,m), { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
 }
 async function syncFromFb(y, m) {
   try {
@@ -591,15 +590,21 @@ function initMonth() {
 }
 
 /* ── 저장 ── */
-function doSave() {
+async function doSave() {
   const branch = document.getElementById('branch-sel').value;
   employees.filter(e => !branch || e.branch === branch).forEach(emp => {
     const key = emp.branch + '||' + emp.name;
     if (!schData[key]) schData[key] = mkEntry(emp);
   });
-  saveSchData(curY, curM, schData);
-  dirty = false;
-  setStat('저장 완료 ' + new Date().toLocaleTimeString('ko-KR'));
+  setStat('저장 중...');
+  try {
+    const res = await saveSchData(curY, curM, schData);
+    if (!res.ok) throw new Error(`서버 응답 ${res.status}`);
+    dirty = false;
+    setStat('저장 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+  } catch(e) {
+    setStat('⚠️ Firebase 저장 실패 — 네트워크를 확인하세요 (' + e.message + ')');
+  }
 }
 
 /* ── 테이블 빌드 ── */
@@ -990,7 +995,7 @@ async function downloadExcel() {
   URL.revokeObjectURL(a.href);
 }
 
-/* ── 30초마다 Firebase 자동 동기화 ── */
+/* ── 5초마다 Firebase 자동 동기화 ── */
 setInterval(async () => {
   if (!document.getElementById('view-schedule').classList.contains('active')) return;
   if (dirty) return; // 미저장 변경사항 있으면 스킵
@@ -1006,7 +1011,7 @@ setInterval(async () => {
       setStat('자동 동기화됨 · ' + new Date().toLocaleTimeString('ko-KR'));
     }
   } catch {}
-}, 30000);
+}, 5000);
 
 loadEmployees();
 setInterval(loadEmployees, 5*60*1000);
