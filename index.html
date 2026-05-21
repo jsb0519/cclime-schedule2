@@ -314,29 +314,41 @@ function onEmployeeData(resp) {
     const exitCount = employees.filter(e => e.exit_date).length;
     setStat(`최종: ${new Date().toLocaleTimeString('ko-KR')} · 퇴사예정 ${exitCount}명 감지`);
 
-    // 신규 직원 자동 스케줄 생성 (Firebase 최신 데이터 반영 후 처리)
+    // 신규 직원 자동 스케줄 생성 + Firebase 양방향 동기화
     (async () => {
       attachFbListener(curY, curM);
-      // Firebase에서 최신 데이터 읽기 — 실패해도 localStorage로 폴백
       const fb = await fbGetOnce(curY, curM);
+      const ls = loadSchData(curY, curM);
+
       if (fb) {
+        // Firebase에 데이터 있음 → 최신본 사용
         localStorage.setItem(lsKey(curY, curM), JSON.stringify(fb));
+        schData = fb;
         setStat('Firebase 동기화 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+      } else if (Object.keys(ls).length) {
+        // Firebase 비어있고 localStorage에 데이터 있음 → Firebase에 업로드
+        schData = ls;
+        setStat('Firebase에 초기 업로드 중...');
+        syncToFb(curY, curM, ls)
+          .then(() => setStat('Firebase 업로드 완료 · ' + new Date().toLocaleTimeString('ko-KR')))
+          .catch(e => setStat('⚠️ Firebase 쓰기 실패 [' + (e.code||e.message) + '] — Firebase 콘솔 Rules 탭에서 .read .write 를 true로 설정하세요'));
       } else {
-        setStat('로컬 데이터 사용 중 (Firebase 연결 불가)');
+        schData = {};
+        setStat(fbErrCode ? ('⚠️ Firebase 오류 [' + fbErrCode + ']') : 'Firebase 비어있음 — 초기화 버튼을 눌러주세요');
       }
-      const tmpSch = loadSchData(curY, curM);
+
+      // 신규 직원 항목 추가
       let newAdded = false;
       employees.forEach(emp => {
         const key = emp.branch+'||'+emp.name;
-        if (!tmpSch[key]) { tmpSch[key]=mkEntry(emp); newAdded=true; }
+        if (!schData[key]) { schData[key]=mkEntry(emp); newAdded=true; }
       });
       if (newAdded) {
-        schData = tmpSch;
-        saveSchData(curY, curM, schData).catch(e =>
-          setStat('⚠️ Firebase 저장 실패 [' + (e.code||e.message) + '] — Firebase 콘솔 Rules를 확인하세요')
+        saveLs(curY, curM, schData);
+        syncToFb(curY, curM, schData).catch(e =>
+          setStat('⚠️ Firebase 쓰기 실패 [' + (e.code||e.message) + '] — Firebase 콘솔 Rules 탭에서 .read .write 를 true로 설정하세요')
         );
-      } else { schData = tmpSch; }
+      }
       if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
     })();
   } catch(e) {
