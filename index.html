@@ -127,6 +127,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <button class="btn-init" onclick="initMonth()">📋 3개월 초기화</button>
     <button class="btn-save" onclick="doSave()">💾 저장</button>
     <button class="btn-excel" onclick="downloadExcel()">⬇ 엑셀 다운로드</button>
+    <span id="fb-badge" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
     <span style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 설정 &nbsp;|&nbsp; 날짜 클릭 → 근무↔휴무 전환</span>
   </div>
   <div class="sch-outer">
@@ -1083,13 +1084,22 @@ async function downloadExcel() {
 }
 
 
-/* ── 시작 시 Firebase 쓰기 가능 여부 즉시 테스트 ── */
+/* ── Firebase 상태 배지 (덮어씌워지지 않는 전용 표시) ── */
+function setFbBadge(ok, msg) {
+  const el = document.getElementById('fb-badge');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.background = ok ? '#D4EDDA' : '#F8D7DA';
+  el.style.color       = ok ? '#155724' : '#721C24';
+}
+
+/* ── 시작 시 Firebase 쓰기 테스트 ── */
 fbDb.ref('_ping').set(Date.now())
   .then(() => fbDb.ref('_ping').remove())
-  .then(() => { fbWriteErr = null; setStat('✅ Firebase 연결 정상'); })
+  .then(() => { fbWriteErr = null; setFbBadge(true, '🟢 Firebase 연결됨'); })
   .catch(e => {
     fbWriteErr = e.code || e.message || '알 수 없음';
-    setStat('⚠️ Firebase 쓰기 불가 [' + fbWriteErr + '] — Firebase 콘솔 → Realtime Database → Rules 탭에서 아래로 교체 후 게시:\n{"rules":{".read":true,".write":true}}');
+    setFbBadge(false, '🔴 Firebase 오류: ' + fbWriteErr);
   });
 
 loadEmployees();
