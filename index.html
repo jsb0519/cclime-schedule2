@@ -411,6 +411,7 @@ function stopFbPoll() {
 function attachFb(y, m) {
   stopFbPoll();
   setFbStatus(null, '🔄 연결 중...');
+  let firstPoll = true;
   const poll = async () => {
     if (fbPollBusy) return;
     fbPollBusy = true;
@@ -426,13 +427,21 @@ function attachFb(y, m) {
             buildTable();
             setStat('다른 기기 변경 반영됨 · ' + new Date().toLocaleTimeString('ko-KR'));
           }
+        } else if (firstPoll) {
+          setStat('근무표 로드 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
         }
+        firstPoll = false;
       } else {
         setFbStatus(null, '⚪ Firebase 비어있음 — 📋 3개월 초기화 필요');
         setStat('Firebase 비어있음 — 📋 3개월 초기화를 눌러주세요');
+        firstPoll = false;
       }
     } catch(e) {
       setFbStatus(false, '🔴 연결 오류');
+      if (firstPoll) {
+        setStat('Firebase 연결 오류 · 로컬 데이터 표시 중');
+        firstPoll = false;
+      }
     } finally {
       fbPollBusy = false;
     }
