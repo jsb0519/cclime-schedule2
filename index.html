@@ -974,11 +974,17 @@ function buildTable() {
   const holidays = getHolidays(curY);
 
   let emps = employees.filter(e => !branch || e.branch === branch);
-  // 퇴사월이 현재 월보다 이전인 직원 행 제외
+  // 퇴사월이 현재 월보다 이전인 직원 제외
   emps = emps.filter(e => {
     if (!e.exit_date || e.exit_date.length < 10) return true;
     const [ey, em] = e.exit_date.split('-').map(Number);
     return !(ey < curY || (ey === curY && em < curM));
+  });
+  // 입사월이 현재 월보다 이후인 직원 제외 (해당 월에 하루도 재직 안 함)
+  emps = emps.filter(e => {
+    if (!e.hire_date || e.hire_date.length < 7) return true;
+    const [hy, hm] = e.hire_date.split('-').map(Number);
+    return !(hy > curY || (hy === curY && hm > curM));
   });
   emps.sort((a,b) => {
     const ba=parseInt(a.branch)||999, bb=parseInt(b.branch)||999;
