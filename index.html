@@ -601,7 +601,7 @@ function renderDashboard() {
       return `<td style="background:${s.bg}">${list.map(x=>`<span class="emp-tag" style="color:${x.fg}">${x.tag}</span>`).join('')}</td>`;
     }).join('');
     body += `<tr style="background:${i%2?'#fff':'#FAFAFA'}">
-      <td style="text-align:center;color:#aaa;font-size:12px;background:#fdbbcb">${i+1}</td>
+      <td style="text-align:center;color:#aaa;font-size:12px">${i+1}</td>
       <td style="font-weight:700;font-size:11px;max-width:80px;word-break:keep-all;white-space:normal" title="${br}">${br}</td>
       <td style="text-align:center;font-weight:800;font-size:15px;color:#4F46E5">${tot}</td>${cells}</tr>`;
   });
