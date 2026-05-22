@@ -56,7 +56,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .d-none{background:#F5F5F5;color:#bbb;font-size:10px;display:block;cursor:default}
 .d-annual{background:#E8EAF6;color:#3949AB;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
 .d-amhalf{background:#E3F2FD;color:#1565C0;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
-.d-pmhalf{background:#FCE4EC;color:#880E4F;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
+.d-pmhalf{background:#E3F2FD;color:#1565C0;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
 .d-comp{background:#F3E5F5;color:#6A1B9A;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
 .d-sun td{background:#FFF5F5 !important}
 .d-sat td{background:#F0F8FF !important}
@@ -105,7 +105,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .dm-type-btn.active[data-type="휴무"]{background:#FFF3E0;color:#BF360C;border-color:#BF360C}
 .dm-type-btn.active[data-type="연차"]{background:#E8EAF6;color:#3949AB;border-color:#3949AB}
 .dm-type-btn.active[data-type="오전반차"]{background:#E3F2FD;color:#1565C0;border-color:#1565C0}
-.dm-type-btn.active[data-type="오후반차"]{background:#FCE4EC;color:#880E4F;border-color:#880E4F}
+.dm-type-btn.active[data-type="오후반차"]{background:#E3F2FD;color:#1565C0;border-color:#1565C0}
 .dm-type-btn.active[data-type="대휴"]{background:#F3E5F5;color:#6A1B9A;border-color:#6A1B9A}
 .dm-time-box{background:#F8F9FF;border-radius:10px;padding:12px 16px;margin-bottom:12px}
 </style>
@@ -1293,7 +1293,7 @@ async function downloadExcel() {
         '휴무':    OFF_FILL,
         '연차':    {type:'pattern',pattern:'solid',fgColor:{argb:'FFE8EAF6'}},
         '오전반차': {type:'pattern',pattern:'solid',fgColor:{argb:'FFE3F2FD'}},
-        '오후반차': {type:'pattern',pattern:'solid',fgColor:{argb:'FFFCE4EC'}},
+        '오후반차': {type:'pattern',pattern:'solid',fgColor:{argb:'FFE3F2FD'}},
         '대휴':    {type:'pattern',pattern:'solid',fgColor:{argb:'FFF3E5F5'}},
       };
       if (beforeHire || afterExit) {
