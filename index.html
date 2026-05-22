@@ -251,28 +251,31 @@ async function fbGetBranch(y, m, branch) {
     return fromFbData(await r.json());
   } catch(e) { return null; }
 }
-/* 전체 지점 읽기 (읽기 전용 뷰) — 구형(flat) 및 신형(per-branch) 모두 지원 */
+/* 전체 지점 읽기 (읽기 전용 뷰) — 구형(flat) 및 신형(per-branch) 모두 지원
+   신형(지점별) 데이터가 구형 flat 데이터보다 항상 우선 적용 */
 async function fbGetAll(y, m) {
   try {
     const r = await fetchTimed(fbUrl(y, m));
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const raw = await r.json();
     if (!raw || typeof raw !== 'object') return null;
-    const result = {};
+    const oldFlat = {}, newBranch = {};
     for (const val of Object.values(raw)) {
       if (!val || typeof val !== 'object') continue;
       if (val.name && val.branch) {
-        // 구형 flat 구조 — 직원 객체가 직접 들어있음
+        // 구형 flat 구조
         const e = normEntry(val);
-        if (e) result[e.branch + '||' + e.name] = e;
+        if (e) oldFlat[e.branch + '||' + e.name] = e;
       } else {
         // 신형 per-branch 구조
         for (const v of Object.values(val)) {
           const e = normEntry(v);
-          if (e && e.branch && e.name) result[e.branch + '||' + e.name] = e;
+          if (e && e.branch && e.name) newBranch[e.branch + '||' + e.name] = e;
         }
       }
     }
+    // 신형 데이터로 구형 덮어쓰기 (지점별 저장이 항상 우선)
+    const result = { ...oldFlat, ...newBranch };
     return Object.keys(result).length ? result : null;
   } catch(e) { return null; }
 }
