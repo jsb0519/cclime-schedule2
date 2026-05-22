@@ -149,7 +149,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <span id="readonly-notice" style="font-size:11px;color:#DC2626;background:#FEE2E2;padding:4px 10px;border-radius:8px;display:none">🔒 읽기 전용 — 지점을 선택하면 편집 가능</span>
     <button class="btn-excel" onclick="downloadExcel()">⬇ 엑셀 다운로드</button>
     <span id="fb-status" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
-    <span style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
+    <span id="edit-hint" style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
   </div>
   <div class="sch-outer">
     <table id="sch-table">
@@ -964,6 +964,10 @@ function buildTable() {
   const initBtn = document.getElementById('btn-init');
   if (notice) notice.style.display = isReadOnly ? 'inline' : 'none';
   if (initBtn) initBtn.style.display = isReadOnly ? 'none' : '';
+  const fbStatus = document.getElementById('fb-status');
+  const editHint = document.getElementById('edit-hint');
+  if (fbStatus) fbStatus.style.display = isReadOnly ? 'none' : '';
+  if (editHint) editHint.style.display = isReadOnly ? 'none' : '';
   const days = new Date(curY, curM, 0).getDate();
   const holidays = getHolidays(curY);
 
