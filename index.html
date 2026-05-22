@@ -597,8 +597,8 @@ function renderDashboard() {
     const tot = BELT_ORDER.reduce((s,l) => s+data[br][l].length, 0);
     const cells = BELT_ORDER.map(belt => {
       const list = data[br][belt]; const s = BS[belt]||{bg:'#fff',fg:'#333'};
-      if (!list.length) return `<td style="background:#fff;color:#ddd;text-align:center">-</td>`;
-      return `<td style="background:${s.bg}">${list.map(x=>`<span class="emp-tag" style="color:${x.fg}">${x.tag}</span>`).join('')}</td>`;
+      if (!list.length) return `<td style="background:#fdbbcb;color:#ddd;text-align:center">-</td>`;
+      return `<td style="background:#fdbbcb">${list.map(x=>`<span class="emp-tag" style="color:${x.fg}">${x.tag}</span>`).join('')}</td>`;
     }).join('');
     body += `<tr style="background:#fdbbcb">
       <td style="text-align:center;color:#aaa;font-size:12px">${i+1}</td>
