@@ -140,7 +140,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 <div id="view-schedule" class="view">
   <div class="sch-controls">
     <select id="branch-sel" onchange="onBranchChange()">
-      <option value="">전체지점(보기전용)</option>
+      <option value="">전체지점 (보기전용)</option>
     </select>
     <button class="nav-btn" onclick="prevMonth()">◀</button>
     <span class="month-lbl" id="month-lbl">—</span>
@@ -1257,7 +1257,7 @@ function populateBranches() {
   const branches = [...new Set(employees.map(e=>e.branch))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
   const sel = document.getElementById('branch-sel');
   const cur = sel.value;
-  sel.innerHTML = '<option value="">전체지점(보기전용)</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
+  sel.innerHTML = '<option value="">전체지점 (보기전용)</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
   if (cur && branches.includes(cur)) sel.value = cur;
 }
 function setStat(msg) { document.getElementById('stat-text').textContent = msg; }
