@@ -145,7 +145,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <button class="nav-btn" onclick="prevMonth()">◀</button>
     <span class="month-lbl" id="month-lbl">—</span>
     <button class="nav-btn" onclick="nextMonth()">▶</button>
-    <button class="btn-init" id="btn-init" onclick="initMonth()">📋 3개월 초기화</button>
+    <button class="btn-init" id="btn-init" onclick="initMonth()">📋 당월 초기화</button>
     <button class="btn-excel" onclick="downloadExcel()">⬇ 엑셀 다운로드</button>
     <span id="fb-status" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
 <span id="edit-hint" style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
@@ -876,31 +876,37 @@ function addMonth(y, m, n) {
 function initMonth() {
   const branch = document.getElementById('branch-sel').value;
   if (!branch) { alert('지점을 선택한 후 초기화해 주세요.'); return; }
-  const [ny, nm]   = addMonth(curY, curM, 1);
-  const [ny2, nm2] = addMonth(curY, curM, 2);
-  if (!confirm(`[${branch}] ${curY}년 ${curM}월·${nm}월·${nm2}월 근무표를 초기화합니다.\n출근시간과 휴무일을 새로 생성합니다.`)) return;
+  if (!confirm(`[${branch}] ${curY}년 ${curM}월 근무표를 초기화합니다.\n출근시간과 휴무일을 새로 생성합니다.`)) return;
   if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
 
+  // 당월만 초기화
   schData = buildMonthSchedule(curY, curM);
-  const d1 = buildMonthSchedule(ny, nm), d2 = buildMonthSchedule(ny2, nm2);
-  saveLs(curY, curM, schData); saveLs(ny, nm, d1); saveLs(ny2, nm2, d2);
+  saveLs(curY, curM, schData);
   clearTimeout(_saveTimer); dirty = false;
   buildTable();
-  setStat(`초기화 완료 · Firebase 동기화 중...`);
+  setStat(`${curY}년 ${curM}월 초기화 완료 · Firebase 동기화 중...`);
   setFbStatus(null, '📤 동기화 중...');
-  Promise.all([
-    fbSetBranch(curY, curM, branch, schData),
-    fbSetBranch(ny,  nm,  branch, d1),
-    fbSetBranch(ny2, nm2, branch, d2)
-  ])
+  fbSetBranch(curY, curM, branch, schData)
     .then(() => {
       setFbStatus(true, '🟢 Firebase 동기화됨');
-      setStat(`[${branch}] ${curY}년 ${curM}월·${nm}월·${nm2}월 초기화 완료`);
+      setStat(`[${branch}] ${curY}년 ${curM}월 초기화 완료`);
     })
     .catch(e => {
       setFbStatus(false, '🔴 동기화 실패: ' + e.message);
       setStat(`초기화 완료 · Firebase 동기화 실패`);
     });
+
+  // 다음 2개월 백그라운드 자동 생성 (미리보기용)
+  const [ny, nm]   = addMonth(curY, curM, 1);
+  const [ny2, nm2] = addMonth(curY, curM, 2);
+  const d1 = buildMonthSchedule(ny, nm);
+  const d2 = buildMonthSchedule(ny2, nm2);
+  saveLs(ny, nm, d1);
+  saveLs(ny2, nm2, d2);
+  Promise.all([
+    fbSetBranch(ny,  nm,  branch, d1),
+    fbSetBranch(ny2, nm2, branch, d2)
+  ]).catch(() => {});
 }
 
 /* ── 저장 ── */
