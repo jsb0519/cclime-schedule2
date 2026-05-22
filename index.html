@@ -963,7 +963,7 @@ function buildTable() {
   const notice = document.getElementById('readonly-notice');
   const initBtn = document.getElementById('btn-init');
   if (notice) notice.style.display = isReadOnly ? 'inline' : 'none';
-  if (initBtn) { initBtn.disabled = isReadOnly; initBtn.style.opacity = isReadOnly ? '0.4' : '1'; }
+  if (initBtn) initBtn.style.display = isReadOnly ? 'none' : '';
   const days = new Date(curY, curM, 0).getDate();
   const holidays = getHolidays(curY);
 
