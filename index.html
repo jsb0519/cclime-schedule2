@@ -1257,7 +1257,7 @@ function populateBranches() {
   const branches = [...new Set(employees.map(e=>e.branch))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
   const sel = document.getElementById('branch-sel');
   const cur = sel.value;
-  sel.innerHTML = '<option value="">전체 지점</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
+  sel.innerHTML = '<option value="">전체지점(보기전용)</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
   if (cur && branches.includes(cur)) sel.value = cur;
 }
 function setStat(msg) { document.getElementById('stat-text').textContent = msg; }
