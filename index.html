@@ -139,13 +139,14 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 <!-- ══ SCHEDULE ══ -->
 <div id="view-schedule" class="view">
   <div class="sch-controls">
-    <select id="branch-sel" onchange="buildTable()">
+    <select id="branch-sel" onchange="onBranchChange()">
       <option value="">전체 지점</option>
     </select>
     <button class="nav-btn" onclick="prevMonth()">◀</button>
     <span class="month-lbl" id="month-lbl">—</span>
     <button class="nav-btn" onclick="nextMonth()">▶</button>
-    <button class="btn-init" onclick="initMonth()">📋 3개월 초기화</button>
+    <button class="btn-init" id="btn-init" onclick="initMonth()">📋 3개월 초기화</button>
+    <span id="readonly-notice" style="font-size:11px;color:#DC2626;background:#FEE2E2;padding:4px 10px;border-radius:8px;display:none">🔒 읽기 전용 — 지점을 선택하면 편집 가능</span>
     <button class="btn-excel" onclick="downloadExcel()">⬇ 엑셀 다운로드</button>
     <span id="fb-status" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
     <span style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
@@ -230,6 +231,61 @@ async function fbSet(y, m, data) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toFbData(data))
+  });
+  if (!r.ok) {
+    const msg = await r.text().catch(() => '');
+    throw new Error('HTTP ' + r.status + (msg ? ': ' + msg.slice(0,80) : ''));
+  }
+}
+
+/* ── 지점별 Firebase (동시 수정 충돌 방지) ── */
+function fbBranchKey(branch) { return branch.replace(/[\.#\$\[\]\/]/g, '_'); }
+function fbBranchUrl(y, m, branch) {
+  return `${FB_BASE}/schedule/${y}_${String(m).padStart(2,'0')}/${fbBranchKey(branch)}.json`;
+}
+/* 특정 지점 읽기 */
+async function fbGetBranch(y, m, branch) {
+  try {
+    const r = await fetchTimed(fbBranchUrl(y, m, branch));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return fromFbData(await r.json());
+  } catch(e) { return null; }
+}
+/* 전체 지점 읽기 (읽기 전용 뷰) — 구형(flat) 및 신형(per-branch) 모두 지원 */
+async function fbGetAll(y, m) {
+  try {
+    const r = await fetchTimed(fbUrl(y, m));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const raw = await r.json();
+    if (!raw || typeof raw !== 'object') return null;
+    const result = {};
+    for (const val of Object.values(raw)) {
+      if (!val || typeof val !== 'object') continue;
+      if (val.name && val.branch) {
+        // 구형 flat 구조 — 직원 객체가 직접 들어있음
+        const e = normEntry(val);
+        if (e) result[e.branch + '||' + e.name] = e;
+      } else {
+        // 신형 per-branch 구조
+        for (const v of Object.values(val)) {
+          const e = normEntry(v);
+          if (e && e.branch && e.name) result[e.branch + '||' + e.name] = e;
+        }
+      }
+    }
+    return Object.keys(result).length ? result : null;
+  } catch(e) { return null; }
+}
+/* 특정 지점만 쓰기 */
+async function fbSetBranch(y, m, branch, data) {
+  const branchData = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v.branch === branch) branchData[k.replace(/[\.#\$\[\]\/]/g, '_')] = v;
+  }
+  const r = await fetchTimed(fbBranchUrl(y, m, branch), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(branchData)
   });
   if (!r.ok) {
     const msg = await r.text().catch(() => '');
@@ -391,7 +447,8 @@ function onEmployeeData(resp) {
     });
     if (newAdded) {
       saveLs(curY, curM, schData);
-      if (fbListenerAttached) fbSet(curY, curM, schData).catch(() => {});  // toFbData는 fbSet 내부에서 처리
+      const branch = document.getElementById('branch-sel').value;
+      if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
   } catch(e) {
@@ -461,32 +518,35 @@ function attachFb(y, m) {
     if (fbPollBusy) return;
     fbPollBusy = true;
     try {
-      const fb = await fbGet(y, m);
+      const branch = document.getElementById('branch-sel').value;
+      const fb = branch ? await fbGetBranch(y, m, branch) : await fbGetAll(y, m);
       if (fb) {
         fbListenerAttached = true;
-        setFbStatus(true, '🟢 동기화됨');
-        if (JSON.stringify(fb) !== JSON.stringify(schData)) {
-          schData = fb;
+        setFbStatus(true, branch ? '🟢 동기화됨' : '🟢 전체 지점 로드됨');
+        // 지점 뷰: 해당 지점 데이터만 갱신, 나머지는 유지
+        const merged = branch
+          ? { ...Object.fromEntries(Object.entries(schData).filter(([,v]) => v.branch !== branch)), ...fb }
+          : fb;
+        if (JSON.stringify(merged) !== JSON.stringify(schData)) {
+          schData = merged;
           saveLs(y, m, schData);
           if (!dirty && document.getElementById('view-schedule').classList.contains('active')) {
             buildTable();
-            setStat('다른 기기 변경 반영됨 · ' + new Date().toLocaleTimeString('ko-KR'));
+            setStat('변경 내용 반영됨 · ' + new Date().toLocaleTimeString('ko-KR'));
           }
         } else if (firstPoll) {
           setStat('근무표 로드 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
         }
         firstPoll = false;
       } else {
-        setFbStatus(null, '⚪ Firebase 비어있음 — 📋 3개월 초기화 필요');
-        setStat('Firebase 비어있음 — 📋 3개월 초기화를 눌러주세요');
+        const branch = document.getElementById('branch-sel').value;
+        setFbStatus(null, branch ? '⚪ Firebase 비어있음 — 📋 3개월 초기화 필요' : '⚪ Firebase 비어있음');
+        setStat(branch ? 'Firebase 비어있음 — 📋 3개월 초기화를 눌러주세요' : 'Firebase 비어있음 — 지점을 선택해 초기화하세요');
         firstPoll = false;
       }
     } catch(e) {
       setFbStatus(false, '🔴 연결 오류');
-      if (firstPoll) {
-        setStat('Firebase 연결 오류 · 로컬 데이터 표시 중');
-        firstPoll = false;
-      }
+      if (firstPoll) { setStat('Firebase 연결 오류 · 로컬 데이터 표시 중'); firstPoll = false; }
     } finally {
       fbPollBusy = false;
     }
@@ -812,9 +872,11 @@ function addMonth(y, m, n) {
   return [d.getFullYear(), d.getMonth() + 1];
 }
 function initMonth() {
+  const branch = document.getElementById('branch-sel').value;
+  if (!branch) { alert('지점을 선택한 후 초기화해 주세요.'); return; }
   const [ny, nm]   = addMonth(curY, curM, 1);
   const [ny2, nm2] = addMonth(curY, curM, 2);
-  if (!confirm(`${curY}년 ${curM}월·${nm}월·${nm2}월 근무표를 현재 인원 기준으로 초기화합니다.\n출근시간과 휴무일을 새로 생성합니다.`)) return;
+  if (!confirm(`[${branch}] ${curY}년 ${curM}월·${nm}월·${nm2}월 근무표를 초기화합니다.\n출근시간과 휴무일을 새로 생성합니다.`)) return;
   if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
 
   schData = buildMonthSchedule(curY, curM);
@@ -822,12 +884,16 @@ function initMonth() {
   saveLs(curY, curM, schData); saveLs(ny, nm, d1); saveLs(ny2, nm2, d2);
   clearTimeout(_saveTimer); dirty = false;
   buildTable();
-  setStat(`${curY}년 ${curM}월·${nm}월·${nm2}월 초기화 완료 · Firebase 동기화 중...`);
+  setStat(`초기화 완료 · Firebase 동기화 중...`);
   setFbStatus(null, '📤 동기화 중...');
-  Promise.all([fbSet(curY,curM,schData), fbSet(ny,nm,d1), fbSet(ny2,nm2,d2)])
+  Promise.all([
+    fbSetBranch(curY, curM, branch, schData),
+    fbSetBranch(ny,  nm,  branch, d1),
+    fbSetBranch(ny2, nm2, branch, d2)
+  ])
     .then(() => {
       setFbStatus(true, '🟢 Firebase 동기화됨');
-      setStat(`${curY}년 ${curM}월·${nm}월·${nm2}월 초기화 + Firebase 동기화 완료`);
+      setStat(`[${branch}] ${curY}년 ${curM}월·${nm}월·${nm2}월 초기화 완료`);
     })
     .catch(e => {
       setFbStatus(false, '🔴 동기화 실패: ' + e.message);
@@ -847,8 +913,10 @@ function scheduleAutoSave() {
 function autoSave() {
   saveLs(curY, curM, schData);
   dirty = false;
+  const branch = document.getElementById('branch-sel').value;
+  if (!branch) return; // 전체 지점 뷰에서는 Firebase 쓰기 안 함
   setFbStatus(null, '📤 저장 중...');
-  fbSet(curY, curM, schData)
+  fbSetBranch(curY, curM, branch, schData)
     .then(() => {
       setFbStatus(true, '🟢 저장 완료');
       setStat('자동 저장 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
@@ -890,6 +958,12 @@ function mkEntry(emp) {
 
 function buildTable() {
   const branch = document.getElementById('branch-sel').value;
+  const isReadOnly = !branch;
+  // 읽기 전용 안내 표시
+  const notice = document.getElementById('readonly-notice');
+  const initBtn = document.getElementById('btn-init');
+  if (notice) notice.style.display = isReadOnly ? 'inline' : 'none';
+  if (initBtn) { initBtn.disabled = isReadOnly; initBtn.style.opacity = isReadOnly ? '0.4' : '1'; }
   const days = new Date(curY, curM, 0).getDate();
   const holidays = getHolidays(curY);
 
@@ -987,14 +1061,14 @@ function buildTable() {
         if (dtype) {
           offCnt++;
           const tcls = TYPE_CLS[dtype] || 'd-off';
-          cells += `<td class="${holCls}" onclick="openDayModal('${key}',${d})"><span class="${tcls}">${dtype}</span></td>`;
+          cells += `<td class="${holCls}"${isReadOnly ? '' : ` onclick="openDayModal('${key}',${d})"`}><span class="${tcls}">${dtype}</span></td>`;
         } else {
           workCnt++;
           const rot = Math.floor((d - 1) / ROT_INT);
           const ds  = (sd.shift_starts && sd.shift_starts[String(d)])
                    || slots[(basePos + rot) % slots.length];
           const de  = addHours(ds, hours);
-          cells += `<td class="${holCls}" onclick="openDayModal('${key}',${d})"><span class="d-work">${ds}<br>${de}</span></td>`;
+          cells += `<td class="${holCls}"${isReadOnly ? '' : ` onclick="openDayModal('${key}',${d})"`}><span class="d-work">${ds}<br>${de}</span></td>`;
         }
       }
     }
@@ -1002,7 +1076,7 @@ function buildTable() {
     body += `<tr>
       <td class="td-name"><div class="emp-cell">
         <span class="belt-badge" style="background:${bS.bg};color:${bS.fg}">${belt}</span>
-        <button class="emp-name-btn" onclick="openModal('${key}')">${empTag}</button>
+        ${isReadOnly ? `<span class="emp-name-btn" style="cursor:default">${empTag}</span>` : `<button class="emp-name-btn" onclick="openModal('${key}')">${empTag}</button>`}
       </div></td>
       <td class="td-shift">${slotsText}<br><span style="color:#aaa;font-size:9px">(${hours}h상주)</span></td>
       ${cells}
@@ -1161,6 +1235,11 @@ function prevMonth() {
 function nextMonth() {
   clearTimeout(_saveTimer); dirty = false;
   curM++; if (curM>12){curM=1;curY++;} renderSchedule();
+}
+function onBranchChange() {
+  schData = loadLs(curY, curM);
+  buildTable();
+  attachFb(curY, curM);
 }
 function populateBranches() {
   const branches = [...new Set(employees.map(e=>e.branch))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
