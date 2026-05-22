@@ -441,16 +441,18 @@ function onEmployeeData(resp) {
     const exitCount = employees.filter(e => e.exit_date).length;
     setStat(`최종: ${new Date().toLocaleTimeString('ko-KR')} · 퇴사예정 ${exitCount}명 감지`);
 
-    // 신규 직원 항목을 로컬 스케줄에 추가
-    let newAdded = false;
-    employees.forEach(emp => {
-      const key = emp.branch + '||' + emp.name;
-      if (!schData[key]) { schData[key] = mkEntry(emp); newAdded = true; }
-    });
-    if (newAdded) {
-      saveLs(curY, curM, schData);
-      const branch = document.getElementById('branch-sel').value;
-      if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
+    // 신규 직원 항목을 로컬 스케줄에 추가 (이미 초기화된 달에만)
+    if (Object.keys(schData).length > 0) {
+      let newAdded = false;
+      employees.forEach(emp => {
+        const key = emp.branch + '||' + emp.name;
+        if (!schData[key]) { schData[key] = mkEntry(emp); newAdded = true; }
+      });
+      if (newAdded) {
+        saveLs(curY, curM, schData);
+        const branch = document.getElementById('branch-sel').value;
+        if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
+      }
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
   } catch(e) {
