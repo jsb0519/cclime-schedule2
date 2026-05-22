@@ -97,6 +97,17 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .sval-neg{color:#DC2626}
 .sval-warn{color:#D97706}
 .btn-excel:hover{background:#E8F5E9}
+/* ─ Day Modal ─ */
+.dm-types{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.dm-type-btn{padding:9px 16px;border:2px solid #e0e0e0;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;background:#fff;transition:.15s;font-family:inherit;color:#555}
+.dm-type-btn:hover{filter:brightness(.95)}
+.dm-type-btn.active[data-type="근무"]{background:#E8F5E9;color:#1B5E20;border-color:#1B5E20}
+.dm-type-btn.active[data-type="휴무"]{background:#FFF3E0;color:#BF360C;border-color:#BF360C}
+.dm-type-btn.active[data-type="연차"]{background:#E8EAF6;color:#3949AB;border-color:#3949AB}
+.dm-type-btn.active[data-type="오전반차"]{background:#E3F2FD;color:#1565C0;border-color:#1565C0}
+.dm-type-btn.active[data-type="오후반차"]{background:#FCE4EC;color:#880E4F;border-color:#880E4F}
+.dm-type-btn.active[data-type="대휴"]{background:#F3E5F5;color:#6A1B9A;border-color:#6A1B9A}
+.dm-time-box{background:#F8F9FF;border-radius:10px;padding:12px 16px;margin-bottom:12px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
@@ -137,13 +148,39 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <button class="btn-init" onclick="initMonth()">📋 3개월 초기화</button>
     <button class="btn-excel" onclick="downloadExcel()">⬇ 엑셀 다운로드</button>
     <span id="fb-status" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
-    <span style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 설정 &nbsp;|&nbsp; 날짜 클릭 → 근무 → 휴무 → 연차 → 오전반차 → 오후반차 → 대휴 → 근무 순환</span>
+    <span style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
   </div>
   <div class="sch-outer">
     <table id="sch-table">
       <thead id="sch-head"></thead>
       <tbody id="sch-body"></tbody>
     </table>
+  </div>
+</div>
+
+<!-- ══ DAY STATUS MODAL ══ -->
+<div class="overlay" id="day-modal">
+  <div class="modal">
+    <h3 id="dm-title">근무 상태 선택</h3>
+    <div class="dm-types">
+      <button class="dm-type-btn" data-type="근무"    onclick="selectDayType('근무')">✅ 근무</button>
+      <button class="dm-type-btn" data-type="휴무"    onclick="selectDayType('휴무')">🔴 휴무</button>
+      <button class="dm-type-btn" data-type="연차"    onclick="selectDayType('연차')">📅 연차</button>
+      <button class="dm-type-btn" data-type="오전반차" onclick="selectDayType('오전반차')">🌤 오전반차</button>
+      <button class="dm-type-btn" data-type="오후반차" onclick="selectDayType('오후반차')">🌆 오후반차</button>
+      <button class="dm-type-btn" data-type="대휴"    onclick="selectDayType('대휴')">🔄 대휴</button>
+    </div>
+    <div class="dm-time-box" id="dm-time-row" style="display:none">
+      <div class="f-row" style="margin-bottom:8px">
+        <label>출근 시간</label>
+        <select id="dm-start" onchange="updateDmPreview()" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;min-width:100px"></select>
+      </div>
+      <div style="font-size:12px;color:#555;padding-left:92px" id="dm-preview"></div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeDayModal()">취소</button>
+      <button class="btn-ok" onclick="saveDayModal()">저장</button>
+    </div>
   </div>
 </div>
 
@@ -239,6 +276,7 @@ let curY = new Date().getFullYear();
 let curM = new Date().getMonth() + 1;
 let dirty = false;
 let editKey = null;
+let dmKey = null, dmDay = null, dmType = null;
 
 /* ── Google GViz 네임스페이스 가로채기 ── */
 window.google = window.google || {};
@@ -949,14 +987,14 @@ function buildTable() {
         if (dtype) {
           offCnt++;
           const tcls = TYPE_CLS[dtype] || 'd-off';
-          cells += `<td class="${holCls}" onclick="toggle('${key}',${d})"><span class="${tcls}">${dtype}</span></td>`;
+          cells += `<td class="${holCls}" onclick="openDayModal('${key}',${d})"><span class="${tcls}">${dtype}</span></td>`;
         } else {
           workCnt++;
           const rot = Math.floor((d - 1) / ROT_INT);
           const ds  = (sd.shift_starts && sd.shift_starts[String(d)])
                    || slots[(basePos + rot) % slots.length];
           const de  = addHours(ds, hours);
-          cells += `<td class="${holCls}" onclick="toggle('${key}',${d})"><span class="d-work">${ds}<br>${de}</span></td>`;
+          cells += `<td class="${holCls}" onclick="openDayModal('${key}',${d})"><span class="d-work">${ds}<br>${de}</span></td>`;
         }
       }
     }
@@ -973,6 +1011,75 @@ function buildTable() {
     </tr>`;
   });
   document.getElementById('sch-body').innerHTML = body;
+}
+
+/* ── Day Status Modal ── */
+function openDayModal(key, day) {
+  dmKey = key; dmDay = day;
+  const sd  = schData[key] || {};
+  const emp = employees.find(e => e.branch+'||'+e.name === key) || {};
+  const dow = new Date(curY, curM-1, day).getDay();
+  document.getElementById('dm-title').textContent =
+    `${curM}월 ${day}일 (${KD[dow]}) · ${emp.name || ''}`;
+  const dtype = (sd.day_types && sd.day_types[String(day)]) ||
+                ((sd.off_days||[]).includes(day) ? '휴무' : '근무');
+  selectDayType(dtype);
+  document.getElementById('day-modal').classList.add('open');
+}
+function selectDayType(type) {
+  dmType = type;
+  document.querySelectorAll('.dm-type-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.type === type));
+  const timeRow = document.getElementById('dm-time-row');
+  if (type === '근무') {
+    timeRow.style.display = 'block';
+    const sd = schData[dmKey] || {};
+    const slots = (sd.shift_slots && sd.shift_slots.length) ? sd.shift_slots : getSlots(sd.shift_hours || 9);
+    const ROT_INT = sd.rotation_interval || 2;
+    const basePos = sd.shift_base_offset !== undefined ? sd.shift_base_offset : 0;
+    const rot = Math.floor((dmDay - 1) / ROT_INT);
+    const curStart = (sd.shift_starts && sd.shift_starts[String(dmDay)]) || slots[(basePos + rot) % slots.length];
+    const sel = document.getElementById('dm-start');
+    sel.innerHTML = slots.map(s => `<option value="${s}"${s===curStart?' selected':''}>${s}</option>`).join('');
+    updateDmPreview();
+  } else {
+    timeRow.style.display = 'none';
+  }
+}
+function updateDmPreview() {
+  if (!dmKey) return;
+  const sd = schData[dmKey] || {};
+  const hours = sd.shift_hours || 9;
+  const start = document.getElementById('dm-start').value;
+  document.getElementById('dm-preview').textContent =
+    `퇴근: ${start} + ${hours}h 상주 → ${addHours(start, hours)}`;
+}
+function saveDayModal() {
+  if (!dmKey) return;
+  if (!schData[dmKey]) {
+    const emp = employees.find(e => e.branch+'||'+e.name === dmKey);
+    schData[dmKey] = mkEntry(emp || {name:'',branch:'',belt:'화이트',hire_date:''});
+  }
+  const sd = schData[dmKey];
+  if (!sd.day_types)    sd.day_types    = {};
+  if (!sd.off_days)     sd.off_days     = [];
+  if (!sd.shift_starts) sd.shift_starts = {};
+  if (dmType === '근무') {
+    delete sd.day_types[String(dmDay)];
+    const oi = sd.off_days.indexOf(dmDay);
+    if (oi >= 0) sd.off_days.splice(oi, 1);
+    sd.shift_starts[String(dmDay)] = document.getElementById('dm-start').value;
+  } else {
+    sd.day_types[String(dmDay)] = dmType;
+    if (!sd.off_days.includes(dmDay)) sd.off_days.push(dmDay);
+  }
+  closeDayModal();
+  buildTable();
+  scheduleAutoSave();
+}
+function closeDayModal() {
+  document.getElementById('day-modal').classList.remove('open');
+  dmKey = null; dmDay = null; dmType = null;
 }
 
 function toggle(key, day) {
