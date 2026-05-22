@@ -903,7 +903,7 @@ function initMonth() {
   // 당월만 초기화
   schData = buildMonthSchedule(curY, curM);
   saveLs(curY, curM, schData);
-  clearTimeout(_saveTimer); dirty = false;
+  clearTimeout(_saveTimer); dirty = false; _saving = false; _pendingSave = false;
   buildTable();
   setStat(`${curY}년 ${curM}월 초기화 완료 · Firebase 동기화 중...`);
   setFbStatus(null, '📤 동기화 중...');
@@ -919,29 +919,55 @@ function initMonth() {
 
 }
 
-/* ── 저장 ── */
-/* ── 자동 저장 (변경 후 1.5초 디바운스) ── */
+/* ── 저장 큐 (race condition 방지) ── */
 let _saveTimer = null;
+let _saving = false;      // Firebase PUT 진행 중 여부
+let _pendingSave = false; // 진행 중에 새 변경 발생 시 플래그
+const MAX_RETRIES = 3;
+
 function scheduleAutoSave() {
   dirty = true;
-  setStat('변경됨 · 저장 중...');
+  setStat('변경됨 · 저장 대기 중...');
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(autoSave, 1500);
+  _saveTimer = setTimeout(flushSave, 1500);
 }
-function autoSave() {
-  saveLs(curY, curM, schData);
+
+function flushSave() {
+  saveLs(curY, curM, schData); // 로컬엔 항상 즉시 저장
   dirty = false;
   const branch = document.getElementById('branch-sel').value;
-  if (!branch) return; // 전체 지점 뷰에서는 Firebase 쓰기 안 함
+  if (!branch) return;
+  if (_saving) {
+    _pendingSave = true; // 요청 중이면 완료 후 재저장 예약
+    return;
+  }
+  _doSave(branch);
+}
+
+function _doSave(branch, retryCount = 0) {
+  _saving = true;
+  _pendingSave = false;
   setFbStatus(null, '📤 저장 중...');
   fbSetBranch(curY, curM, branch, schData)
     .then(() => {
+      _saving = false;
       setFbStatus(true, '🟢 저장 완료');
       setStat('자동 저장 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+      if (_pendingSave) { // 대기 중인 변경이 있으면 즉시 재저장
+        saveLs(curY, curM, schData);
+        _doSave(branch);
+      }
     })
     .catch(e => {
-      setFbStatus(false, '🔴 저장 실패: ' + e.message);
-      setStat('로컬 저장됨 · Firebase 오류');
+      _saving = false;
+      if (retryCount < MAX_RETRIES) {
+        const delay = 1000 * Math.pow(2, retryCount); // 지수 백오프
+        setFbStatus(null, `⚠️ 재시도 중... (${retryCount + 1}/${MAX_RETRIES})`);
+        setTimeout(() => _doSave(branch, retryCount + 1), delay);
+      } else {
+        setFbStatus(false, '🔴 저장 실패: ' + e.message);
+        setStat('로컬 저장됨 · Firebase 오류');
+      }
     });
 }
 
@@ -1273,13 +1299,13 @@ function saveModal() {
 /* ── Nav ── */
 function prevMonth() {
   if (curY <= MIN_YEAR && curM <= MIN_MONTH) return;
-  clearTimeout(_saveTimer); dirty = false;
+  clearTimeout(_saveTimer); dirty = false; _saving = false; _pendingSave = false;
   curM--; if (curM<1){curM=12;curY--;} renderSchedule();
 }
 function nextMonth() {
   const [maxY, maxM] = getMaxMonth();
   if (curY > maxY || (curY === maxY && curM >= maxM)) return;
-  clearTimeout(_saveTimer); dirty = false;
+  clearTimeout(_saveTimer); dirty = false; _saving = false; _pendingSave = false;
   curM++; if (curM>12){curM=1;curY++;} renderSchedule();
 }
 function onBranchChange() {
