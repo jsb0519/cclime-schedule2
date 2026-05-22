@@ -142,9 +142,9 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <select id="branch-sel" onchange="onBranchChange()">
       <option value="">전체지점 (보기전용)</option>
     </select>
-    <button class="nav-btn" onclick="prevMonth()">◀</button>
+    <button class="nav-btn" id="btn-prev" onclick="prevMonth()">◀</button>
     <span class="month-lbl" id="month-lbl">—</span>
-    <button class="nav-btn" onclick="nextMonth()">▶</button>
+    <button class="nav-btn" id="btn-next" onclick="nextMonth()">▶</button>
     <button class="btn-init" id="btn-init" onclick="initMonth()">📋 당월 초기화</button>
     <button class="btn-excel" onclick="downloadExcel()">⬇ 엑셀 다운로드</button>
     <span id="fb-status" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
@@ -209,6 +209,24 @@ const BELT_HOURS = {골드:10,실버:10,블랙:10,레드:9,블루:9,퍼플:8,옐
 const DEFAULT_START = '10:00';
 const DAY_TYPES_CYCLE = ['휴무','연차','오전반차','오후반차','대휴'];
 const TYPE_CLS = {'휴무':'d-off','연차':'d-annual','오전반차':'d-amhalf','오후반차':'d-pmhalf','대휴':'d-comp'};
+const MIN_YEAR = 2026, MIN_MONTH = 4; // 이동 가능 최소 월 (2026년 4월)
+
+function getMaxMonth() {
+  const today = new Date();
+  const branch = document.getElementById('branch-sel').value;
+  const ahead = branch ? 3 : 2; // 지점: +3개월, 전체: +2개월
+  const d = new Date(today.getFullYear(), today.getMonth() + ahead, 1);
+  return [d.getFullYear(), d.getMonth() + 1];
+}
+function updateNavBtns() {
+  const [maxY, maxM] = getMaxMonth();
+  const atMax = curY > maxY || (curY === maxY && curM >= maxM);
+  const atMin = curY <= MIN_YEAR && curM <= MIN_MONTH;
+  const btnNext = document.getElementById('btn-next');
+  const btnPrev = document.getElementById('btn-prev');
+  if (btnNext) { btnNext.disabled = atMax; btnNext.style.opacity = atMax ? '0.3' : '1'; btnNext.style.cursor = atMax ? 'default' : ''; }
+  if (btnPrev) { btnPrev.disabled = atMin; btnPrev.style.opacity = atMin ? '0.3' : '1'; btnPrev.style.cursor = atMin ? 'default' : ''; }
+}
 
 /* ── Firebase REST API (WebSocket 없이 순수 HTTPS fetch) ── */
 const FB_BASE = 'https://cclime-schedule-cb047-default-rtdb.asia-southeast1.firebasedatabase.app';
@@ -733,10 +751,11 @@ function renderDashboard() {
 /* ── Schedule 렌더 ── */
 function renderSchedule() {
   document.getElementById('month-lbl').textContent = `${curY}년 ${curM}월`;
-  schData = loadLs(curY, curM);   // 먼저 로컬 데이터로 즉시 표시
+  schData = loadLs(curY, curM);
   buildTable();
-  attachFb(curY, curM);           // Firebase 리스너 연결 (데이터 도착 시 자동 갱신)
+  attachFb(curY, curM);
   setStat('근무표 불러오는 중...');
+  updateNavBtns();
 }
 
 /* ── 월 스케줄 생성 (y년 m월) ── */
@@ -967,6 +986,21 @@ function buildTable() {
   const editHint = document.getElementById('edit-hint');
   if (fbStatus) fbStatus.style.display = isReadOnly ? 'none' : '';
   if (editHint) editHint.style.display = isReadOnly ? 'none' : '';
+  updateNavBtns();
+
+  // 해당 월 데이터 없으면 안내 메시지
+  const hasData = branch
+    ? Object.values(schData).some(v => v.branch === branch)
+    : Object.keys(schData).length > 0;
+  if (!hasData) {
+    document.getElementById('sch-head').innerHTML = '';
+    document.getElementById('sch-body').innerHTML = `
+      <tr><td colspan="2" style="text-align:center;padding:60px 20px;color:#bbb;font-size:15px;border:none;cursor:default">
+        📋 아직 근무표가 등록되지 않았습니다
+      </td></tr>`;
+    return;
+  }
+
   const days = new Date(curY, curM, 0).getDate();
   const holidays = getHolidays(curY);
 
@@ -1238,10 +1272,13 @@ function saveModal() {
 
 /* ── Nav ── */
 function prevMonth() {
+  if (curY <= MIN_YEAR && curM <= MIN_MONTH) return;
   clearTimeout(_saveTimer); dirty = false;
   curM--; if (curM<1){curM=12;curY--;} renderSchedule();
 }
 function nextMonth() {
+  const [maxY, maxM] = getMaxMonth();
+  if (curY > maxY || (curY === maxY && curM >= maxM)) return;
   clearTimeout(_saveTimer); dirty = false;
   curM++; if (curM>12){curM=1;curY++;} renderSchedule();
 }
@@ -1249,6 +1286,7 @@ function onBranchChange() {
   schData = loadLs(curY, curM);
   buildTable();
   attachFb(curY, curM);
+  updateNavBtns();
 }
 function populateBranches() {
   const branches = [...new Set(employees.map(e=>e.branch))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
