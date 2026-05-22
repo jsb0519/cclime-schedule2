@@ -896,17 +896,6 @@ function initMonth() {
       setStat(`초기화 완료 · Firebase 동기화 실패`);
     });
 
-  // 다음 2개월 백그라운드 자동 생성 (미리보기용)
-  const [ny, nm]   = addMonth(curY, curM, 1);
-  const [ny2, nm2] = addMonth(curY, curM, 2);
-  const d1 = buildMonthSchedule(ny, nm);
-  const d2 = buildMonthSchedule(ny2, nm2);
-  saveLs(ny, nm, d1);
-  saveLs(ny2, nm2, d2);
-  Promise.all([
-    fbSetBranch(ny,  nm,  branch, d1),
-    fbSetBranch(ny2, nm2, branch, d2)
-  ]).catch(() => {});
 }
 
 /* ── 저장 ── */
