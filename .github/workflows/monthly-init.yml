@@ -1,0 +1,20 @@
+name: 월별 근무표 자동 초기화
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # 매월 1일 00:00 UTC (= 09:00 KST)
+  workflow_dispatch:       # 수동 실행 버튼
+
+jobs:
+  init-schedule:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 근무표 자동 초기화
+        run: python init_schedule.py
