@@ -473,6 +473,9 @@ function onEmployeeData(resp) {
       }
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
+    // 지점 선택 중이면 당월+2개월 자동 생성
+    const _branch = document.getElementById('branch-sel').value;
+    if (_branch) autoInitMissingMonths(_branch);
   } catch(e) {
     setStat('파싱 오류: ' + e.message);
   }
@@ -524,6 +527,47 @@ function setFbStatus(ok, msg) {
   el.style.color      = ok === true ? '#155724' : ok === false ? '#721C24' : '#888';
 }
 
+/* ── 자동 초기화 (당월 + 다음 2개월) ── */
+const _autoInitDone = new Set(); // 이미 확인/생성된 branch_Y_M 추적
+async function autoInitMissingMonths(branch) {
+  if (!branch || employees.length === 0) return;
+  const today = new Date();
+  const months = [0, 1, 2].map(offset => {
+    const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+    return { y: d.getFullYear(), m: d.getMonth() + 1 };
+  });
+  for (const { y, m } of months) {
+    const key = `${branch}_${y}_${m}`;
+    if (_autoInitDone.has(key)) continue;
+    try {
+      const fb = await fbGetBranch(y, m, branch);
+      if (fb) {
+        _autoInitDone.add(key); // 이미 데이터 있음
+        if (y === curY && m === curM) {
+          const merged = { ...Object.fromEntries(Object.entries(schData).filter(([,v]) => v.branch !== branch)), ...fb };
+          if (JSON.stringify(merged) !== JSON.stringify(schData)) {
+            schData = merged; saveLs(y, m, schData);
+            if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
+          }
+        }
+      } else {
+        // Firebase 비어있음 → 자동 생성
+        const sched = buildMonthSchedule(y, m);
+        saveLs(y, m, sched);
+        await fbSetBranch(y, m, branch, sched);
+        _autoInitDone.add(key);
+        if (y === curY && m === curM) {
+          schData = { ...Object.fromEntries(Object.entries(schData).filter(([,v]) => v.branch !== branch)), ...sched };
+          saveLs(y, m, schData);
+          setFbStatus(true, '🟢 동기화됨');
+          setStat(`${y}년 ${m}월 근무표 자동 생성 완료 · ${new Date().toLocaleTimeString('ko-KR')}`);
+          if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
+        }
+      }
+    } catch(e) { /* 다음 폴링 때 재시도 */ }
+  }
+}
+
 /* ── 5초 폴링 (읽기 전용 — 쓰기는 doSave/initMonth만) ── */
 let fbListenerAttached = false;
 let fbPollBusy = false;
@@ -562,8 +606,13 @@ function attachFb(y, m) {
         firstPoll = false;
       } else {
         const branch = document.getElementById('branch-sel').value;
-        setFbStatus(null, branch ? '⚪ Firebase 비어있음 — 📋 3개월 초기화 필요' : '⚪ Firebase 비어있음');
-        setStat(branch ? 'Firebase 비어있음 — 📋 3개월 초기화를 눌러주세요' : 'Firebase 비어있음 — 지점을 선택해 초기화하세요');
+        if (branch && employees.length > 0) {
+          setFbStatus(null, '⏳ 근무표 자동 생성 중...');
+          setStat('근무표 자동 생성 중...');
+          autoInitMissingMonths(branch);
+        } else {
+          setFbStatus(null, branch ? '⚪ 직원 데이터 로드 대기 중...' : '⚪ Firebase 비어있음');
+        }
         firstPoll = false;
       }
     } catch(e) {
