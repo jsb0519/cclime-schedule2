@@ -473,9 +473,10 @@ function onEmployeeData(resp) {
       }
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
-    // 지점 선택 중이면 당월+2개월 자동 생성
+    // 당월+2개월 자동 생성: 지점 선택 시 해당 지점만, 전체지점 뷰에서는 모든 지점 백그라운드 생성
     const _branch = document.getElementById('branch-sel').value;
     if (_branch) autoInitMissingMonths(_branch);
+    else autoInitAllBranches();
   } catch(e) {
     setStat('파싱 오류: ' + e.message);
   }
@@ -568,6 +569,45 @@ async function autoInitMissingMonths(branch) {
   }
 }
 
+/* ── 전체 지점 자동 초기화 (전체지점 뷰에서 백그라운드 실행) ── */
+let _allBranchInitRunning = false;
+async function autoInitAllBranches() {
+  if (_allBranchInitRunning || employees.length === 0) return;
+  _allBranchInitRunning = true;
+  const branches = [...new Set(employees.map(e => e.branch))];
+  const today = new Date();
+  const months = [0, 1, 2].map(offset => {
+    const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+    return { y: d.getFullYear(), m: d.getMonth() + 1 };
+  });
+  let generated = 0;
+  for (const branch of branches) {
+    for (const { y, m } of months) {
+      const key = `${branch}_${y}_${m}`;
+      if (_autoInitDone.has(key)) continue;
+      try {
+        const fb = await fbGetBranch(y, m, branch);
+        if (fb) {
+          _autoInitDone.add(key);
+        } else {
+          const sched = buildMonthSchedule(y, m);
+          await fbSetBranch(y, m, branch, sched);
+          _autoInitDone.add(key);
+          generated++;
+          setStat(`전체 지점 자동 초기화 중... (${generated}건 생성됨)`);
+        }
+      } catch(e) { /* 다음 번에 재시도 */ }
+    }
+  }
+  _allBranchInitRunning = false;
+  if (generated > 0 && document.getElementById('view-schedule').classList.contains('active')) {
+    schData = await fbGetAll(curY, curM) || {};
+    saveLs(curY, curM, schData);
+    buildTable();
+    setStat(`전체 지점 근무표 자동 초기화 완료 (${generated}건) · ${new Date().toLocaleTimeString('ko-KR')}`);
+  }
+}
+
 /* ── 5초 폴링 (읽기 전용 — 쓰기는 doSave/initMonth만) ── */
 let fbListenerAttached = false;
 let fbPollBusy = false;
@@ -606,12 +646,13 @@ function attachFb(y, m) {
         firstPoll = false;
       } else {
         const branch = document.getElementById('branch-sel').value;
-        if (branch && employees.length > 0) {
+        if (employees.length > 0) {
           setFbStatus(null, '⏳ 근무표 자동 생성 중...');
           setStat('근무표 자동 생성 중...');
-          autoInitMissingMonths(branch);
+          if (branch) autoInitMissingMonths(branch);
+          else autoInitAllBranches();
         } else {
-          setFbStatus(null, branch ? '⚪ 직원 데이터 로드 대기 중...' : '⚪ Firebase 비어있음');
+          setFbStatus(null, '⚪ 직원 데이터 로드 대기 중...');
         }
         firstPoll = false;
       }
