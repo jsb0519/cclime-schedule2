@@ -459,14 +459,15 @@ function onEmployeeData(resp) {
     const exitCount = employees.filter(e => e.exit_date).length;
     setStat(`최종: ${new Date().toLocaleTimeString('ko-KR')} · 퇴사예정 ${exitCount}명 감지`);
 
-    // 신규 직원 항목을 로컬 스케줄에 추가 (이미 초기화된 달에만)
+    // 신규 직원 감지 → buildMonthSchedule로 배정 (이미 초기화된 달에만)
     if (Object.keys(schData).length > 0) {
-      let newAdded = false;
-      employees.forEach(emp => {
-        const key = emp.branch + '||' + emp.name;
-        if (!schData[key]) { schData[key] = mkEntry(emp); newAdded = true; }
-      });
-      if (newAdded) {
+      const newEmps = employees.filter(emp => !schData[emp.branch + '||' + emp.name]);
+      if (newEmps.length > 0) {
+        const fresh = buildMonthSchedule(curY, curM);
+        newEmps.forEach(emp => {
+          const key = emp.branch + '||' + emp.name;
+          schData[key] = fresh[key] || mkEntry(emp);
+        });
         saveLs(curY, curM, schData);
         const branch = document.getElementById('branch-sel').value;
         if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
@@ -530,6 +531,35 @@ function setFbStatus(ok, msg) {
 
 /* ── 자동 초기화 (당월 + 다음 2개월) ── */
 const _autoInitDone = new Set(); // 이미 확인/생성된 branch_Y_M 추적
+
+// 해당 월에 재직 중인 지점 직원 중 fb에 없는 신규 입사자를 계산해 반환
+function calcMissingEmps(y, m, branch, fb) {
+  const branchEmps = employees.filter(e => e.branch === branch);
+  const missing = branchEmps.filter(emp => {
+    const key = emp.branch + '||' + emp.name;
+    if (fb[key]) return false; // 이미 있음
+    // 해당 월 이후 입사면 제외
+    if (emp.hire_date && emp.hire_date.length >= 7) {
+      const [hy, hm] = emp.hire_date.split('-').map(Number);
+      if (hy > y || (hy === y && hm > m)) return false;
+    }
+    // 해당 월 이전 퇴사면 제외
+    if (emp.exit_date && emp.exit_date.length >= 7) {
+      const [ey, em] = emp.exit_date.split('-').map(Number);
+      if (ey < y || (ey === y && em < m)) return false;
+    }
+    return true;
+  });
+  if (missing.length === 0) return null;
+  const fresh = buildMonthSchedule(y, m);
+  const result = {};
+  missing.forEach(emp => {
+    const key = emp.branch + '||' + emp.name;
+    result[key] = fresh[key] || mkEntry(emp);
+  });
+  return result;
+}
+
 async function autoInitMissingMonths(branch) {
   if (!branch || employees.length === 0) return;
   const today = new Date();
@@ -543,16 +573,28 @@ async function autoInitMissingMonths(branch) {
     try {
       const fb = await fbGetBranch(y, m, branch);
       if (fb) {
-        _autoInitDone.add(key); // 이미 데이터 있음
-        if (y === curY && m === curM) {
-          const merged = { ...Object.fromEntries(Object.entries(schData).filter(([,v]) => v.branch !== branch)), ...fb };
-          if (JSON.stringify(merged) !== JSON.stringify(schData)) {
-            schData = merged; saveLs(y, m, schData);
+        // 이미 데이터 있음 — 신규 입사자만 추가
+        const added = calcMissingEmps(y, m, branch, fb);
+        if (added) {
+          const updated = { ...fb, ...added };
+          await fbSetBranch(y, m, branch, updated);
+          if (y === curY && m === curM) {
+            schData = { ...Object.fromEntries(Object.entries(schData).filter(([,v]) => v.branch !== branch)), ...updated };
+            saveLs(y, m, schData);
             if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
+          }
+        } else {
+          _autoInitDone.add(key);
+          if (y === curY && m === curM) {
+            const merged = { ...Object.fromEntries(Object.entries(schData).filter(([,v]) => v.branch !== branch)), ...fb };
+            if (JSON.stringify(merged) !== JSON.stringify(schData)) {
+              schData = merged; saveLs(y, m, schData);
+              if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
+            }
           }
         }
       } else {
-        // Firebase 비어있음 → 자동 생성
+        // Firebase 비어있음 → 전체 자동 생성
         const sched = buildMonthSchedule(y, m);
         saveLs(y, m, sched);
         await fbSetBranch(y, m, branch, sched);
@@ -588,7 +630,14 @@ async function autoInitAllBranches() {
       try {
         const fb = await fbGetBranch(y, m, branch);
         if (fb) {
-          _autoInitDone.add(key);
+          // 신규 입사자만 추가
+          const added = calcMissingEmps(y, m, branch, fb);
+          if (added) {
+            await fbSetBranch(y, m, branch, { ...fb, ...added });
+            generated++;
+          } else {
+            _autoInitDone.add(key);
+          }
         } else {
           const sched = buildMonthSchedule(y, m);
           await fbSetBranch(y, m, branch, sched);

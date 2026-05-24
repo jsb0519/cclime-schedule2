@@ -197,13 +197,20 @@ def build_month_schedule(y, m, employees):
 def fb_key(s): return re.sub(r'[.#$\[\]/ ]', '_', s)
 
 def fb_get_branch(y, m, branch):
-    """Firebase에서 해당 지점/월 데이터 존재 여부 확인. 있으면 True, 없으면 False."""
+    """Firebase에서 해당 지점/월 데이터 읽기. 없으면 None 반환."""
     path = f'/schedule/{y}_{m:02d}/{fb_key(branch)}.json'
     url = FB_BASE + urllib.parse.quote(path, safe='/.=')
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req, timeout=15) as r:
         data = r.read().decode('utf-8')
-    return data.strip() not in ('null', '{}', '')
+    raw = json.loads(data)
+    if not raw: return None
+    # Firebase 키(특수문자→_)에서 원본 키(branch||name) 복원
+    result = {}
+    for v in raw.values():
+        if isinstance(v, dict) and v.get('branch') and v.get('name'):
+            result[v['branch'] + '||' + v['name']] = v
+    return result if result else None
 
 def fb_set_branch(y, m, branch, sched):
     branch_data = {fb_key(k):v for k,v in sched.items() if v.get('branch')==branch}
@@ -242,21 +249,37 @@ def main():
     for y, m in months:
         print(f'── {y}년 {m}월 ──')
         sched = build_month_schedule(y, m, employees)
-        skipped = created = 0
+        skipped = created = added = 0
         for branch in branches:
             cnt = sum(1 for v in sched.values() if v.get('branch')==branch)
             if cnt == 0: continue
             try:
-                if fb_get_branch(y, m, branch):
-                    print(f'  [{branch}] 이미 존재, 건너뜀')
-                    skipped += 1
+                existing = fb_get_branch(y, m, branch)
+                if existing:
+                    # 신규 입사자 감지
+                    missing = {k: v for k, v in sched.items()
+                               if v.get('branch') == branch and k not in existing}
+                    if missing:
+                        merged = {**{fb_key(k): v for k, v in existing.items()},
+                                  **{fb_key(k): v for k, v in missing.items()}}
+                        path = f'/schedule/{y}_{m:02d}/{fb_key(branch)}.json'
+                        url = FB_BASE + urllib.parse.quote(path, safe='/.=')
+                        body = json.dumps(merged, ensure_ascii=False).encode('utf-8')
+                        req = urllib.request.Request(url, data=body, method='PUT',
+                                                     headers={'Content-Type':'application/json; charset=utf-8'})
+                        with urllib.request.urlopen(req, timeout=15) as r: r.read()
+                        print(f'  [{branch}] 신규 {len(missing)}명 추가 ✓')
+                        added += 1
+                    else:
+                        print(f'  [{branch}] 이미 존재, 건너뜀')
+                        skipped += 1
                 else:
                     fb_set_branch(y, m, branch, sched)
                     print(f'  [{branch}] {cnt}명 생성 완료 ✓')
                     created += 1
             except Exception as e:
                 print(f'  [{branch}] 오류: {e}')
-        print(f'  → 생성 {created}개, 건너뜀 {skipped}개\n')
+        print(f'  → 신규생성 {created}개, 신규입사자추가 {added}개, 건너뜀 {skipped}개\n')
 
     print('완료!')
 
