@@ -730,8 +730,10 @@ function calcStats() {
   const today = new Date();
   const y = today.getFullYear(), m = today.getMonth() + 1;
 
-  // 현재 재직자 (exit_date 없거나 이번달 이후)
+  // 현재 재직자 (입사일 ≤ 오늘, exit_date 없거나 이번달 이후)
+  const todayStr = `${y}-${String(m).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   const current = employees.filter(e => {
+    if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > todayStr) return false;
     if (!e.exit_date || e.exit_date.length < 7) return true;
     const [ey, em] = e.exit_date.split('-').map(Number);
     return !(ey < y || (ey === y && em < m));
@@ -785,17 +787,26 @@ function calcStats() {
 
 /* ── Dashboard 렌더 ── */
 function renderDashboard() {
+  // 오늘 기준 실제 재직자만: 입사일 ≤ 오늘 AND (퇴사일 없거나 퇴사일 > 오늘)
+  const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+  const todayStr = todayDate.toISOString().slice(0,10);
+  const active = employees.filter(e => {
+    if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > todayStr) return false;
+    if (e.exit_date && e.exit_date.length >= 10 && e.exit_date <= todayStr) return false;
+    return true;
+  });
+
   const today = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
   document.getElementById('dash-meta').innerHTML =
-    `기준일: <strong>${today}</strong>&nbsp;|&nbsp;재직자: <strong>${employees.length}명</strong>`;
+    `기준일: <strong>${today}</strong>&nbsp;|&nbsp;재직자: <strong>${active.length}명</strong>`;
 
   const bmap = {};
-  employees.forEach(e => { bmap[e.branch] = bmap[e.branch] || (parseInt(e.branch)||99); });
+  active.forEach(e => { bmap[e.branch] = bmap[e.branch] || (parseInt(e.branch)||99); });
   const branches = Object.keys(bmap).sort((a,b) => bmap[a]-bmap[b]);
 
   const data = {};
   branches.forEach(b => { data[b]={}; BELT_ORDER.forEach(l => data[b][l]=[]); });
-  employees.forEach(e => {
+  active.forEach(e => {
     const belt = BELT_ORDER.includes(e.belt) ? e.belt : '실습생';
     const role = e.role && e.role.includes('매니저') ? 'M' : 'B';
     let prefix = '';
@@ -807,9 +818,9 @@ function renderDashboard() {
     data[e.branch][belt].push({tag, fg:BS[belt]?.fg||'#333'});
   });
   const bt = {};
-  BELT_ORDER.forEach(l => { bt[l]=employees.filter(e=>(BELT_ORDER.includes(e.belt)?e.belt:'실습생')===l).length; });
+  BELT_ORDER.forEach(l => { bt[l]=active.filter(e=>(BELT_ORDER.includes(e.belt)?e.belt:'실습생')===l).length; });
 
-  let sm = `<div class="card card-total"><div class="lbl">전체</div><div class="val">${employees.length}</div></div>`;
+  let sm = `<div class="card card-total"><div class="lbl">전체</div><div class="val">${active.length}</div></div>`;
   BELT_ORDER.forEach(belt => {
     if (!bt[belt]) return;
     const s = BS[belt]||{bg:'#eee',fg:'#333'};
@@ -850,7 +861,7 @@ function renderDashboard() {
     <div class="stat-card">
       <div class="slbl">평균 근속기간</div>
       <div class="sval" style="font-size:18px">${tenureStr}</div>
-      <div class="ssub">입사일 있는 ${employees.filter(e=>e.hire_date&&e.hire_date.length>=7).length}명 기준</div>
+      <div class="ssub">입사일 있는 ${active.filter(e=>e.hire_date&&e.hire_date.length>=7).length}명 기준</div>
     </div>`;
 
   const beltTh = BELT_ORDER.map(b => {
@@ -881,7 +892,7 @@ function renderDashboard() {
     <tbody>${body}
       <tr style="background:#F8F8FF;font-weight:800;border-top:3px solid #4F46E5">
         <td colspan="2" style="text-align:center">합계</td>
-        <td style="text-align:center;font-weight:800;font-size:15px;color:#4F46E5">${employees.length}</td>${footC}
+        <td style="text-align:center;font-weight:800;font-size:15px;color:#4F46E5">${active.length}</td>${footC}
       </tr>
     </tbody>
   </table>`;
