@@ -415,10 +415,11 @@ function onEmployeeData(resp) {
       if(iE<0)iE=colsResult.iE;
     }
     if (iB<0) iB=1; if (iN<0) iN=2; if (iR<0) iR=3; if (iL<0) iL=4; if (iD<0) iD=7; if (iW<0) iW=5;
-    // iE 최후 수단: 텍스트 탐지 실패 시 입사일 이후 첫 번째 date 타입 컬럼으로 추론
+    // iE 최후 수단: 텍스트 탐지 실패 시 입사일 이후 첫 번째 date 타입 컬럼으로 추론 후 col9 고정
     if (iE < 0 && iD >= 0) {
       cols.forEach((c, i) => { if (iE<0 && (c.type==='date'||c.type==='datetime') && i>iD) iE=i; });
     }
+    if (iE < 0) iE = 9;
 
     const getStr = (row, i) => (i>=0 && row.c && row.c[i]) ? String(row.c[i].f||row.c[i].v||'').trim() : '';
     const parseDate = (cell) => {
