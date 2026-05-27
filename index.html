@@ -789,8 +789,8 @@ function calcStats() {
 /* ── Dashboard 렌더 ── */
 function renderDashboard() {
   // 오늘 기준 실제 재직자만: 입사일 ≤ 오늘 AND (퇴사일 없거나 퇴사일 > 오늘)
-  const todayDate = new Date(); todayDate.setHours(0,0,0,0);
-  const todayStr = todayDate.toISOString().slice(0,10);
+  const todayDate = new Date();
+  const todayStr = `${todayDate.getFullYear()}-${String(todayDate.getMonth()+1).padStart(2,'0')}-${String(todayDate.getDate()).padStart(2,'0')}`;
   const active = employees.filter(e => {
     if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > todayStr) return false;
     if (e.exit_date && e.exit_date.length >= 10 && e.exit_date <= todayStr) return false;
