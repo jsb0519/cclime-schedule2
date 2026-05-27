@@ -811,18 +811,25 @@ function calcStats() {
     return !(ey < y || (ey === y && em < m));
   });
 
-  // 당월 입사자
-  const hired = employees.filter(e => {
+  // 당월 입사자 (재직자 + 퇴직자 탭 합산, 중복 제거)
+  const allPeopleForHire = [...employees];
+  resignedEmployees.forEach(r => {
+    if (!employees.some(e => e.name === r.name && e.branch === r.branch))
+      allPeopleForHire.push(r);
+  });
+  const hired = allPeopleForHire.filter(e => {
     if (!e.hire_date || e.hire_date.length < 7) return false;
     const [hy, hm] = e.hire_date.split('-').map(Number);
     return hy === y && hm === m;
   });
 
-  // 퇴사자 풀: 재직자 탭(퇴사예정일 있는 자) + 퇴직자 탭 전체
-  const allExitPool = [
-    ...employees.filter(e => e.exit_date),
-    ...resignedEmployees,
-  ];
+  // 퇴사자 풀: 이름+지점 기준 중복 제거 (재직자 탭 → 퇴직자 탭 순)
+  const exitSeen = new Set();
+  const allExitPool = [];
+  [...employees.filter(e => e.exit_date), ...resignedEmployees].forEach(e => {
+    const key = `${e.branch}||${e.name}`;
+    if (!exitSeen.has(key)) { exitSeen.add(key); allExitPool.push(e); }
+  });
 
   // 당월 퇴사자
   const exited = allExitPool.filter(e => {
@@ -918,12 +925,12 @@ function renderDashboard() {
   document.getElementById('dash-stats').innerHTML = `
     <div class="stat-card">
       <div class="slbl">당월 입사자</div>
-      <div class="sval ${netCls}">${netSign}${st.net}</div>
-      <div class="ssub">입사 ${st.hired}명 · 퇴사 ${st.exited}명</div>
+      <div class="sval sval-pos">${st.hired}명</div>
+      <div class="ssub">순변동 ${st.net > 0 ? '+' : ''}${st.net} · 퇴사 ${st.exited}명</div>
     </div>
     <div class="stat-card">
       <div class="slbl">당월 퇴사자</div>
-      <div class="sval">${st.exited}명</div>
+      <div class="sval ${st.exited > 0 ? 'sval-neg' : ''}">${st.exited}명</div>
       <div class="ssub">재직 ${st.currentCount}명 기준</div>
     </div>
     <div class="stat-card">
