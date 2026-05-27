@@ -369,6 +369,8 @@ function showTab(t) {
   if (t === 'schedule') renderSchedule();
 }
 
+let resignedEmployees = []; // 퇴직자 탭 데이터
+
 /* ── 직원 데이터 로드 (GViz JSONP) ── */
 function loadEmployees() {
   setStat('불러오는 중...');
@@ -459,6 +461,7 @@ function onEmployeeData(resp) {
     populateBranches();
     const exitCount = employees.filter(e => e.exit_date).length;
     setStat(`최종: ${new Date().toLocaleTimeString('ko-KR')} · 퇴사예정 ${exitCount}명 감지`);
+    loadResigned();
 
     // 신규 직원 감지 → buildMonthSchedule로 배정 (이미 초기화된 달에만)
     if (Object.keys(schData).length > 0) {
@@ -483,6 +486,74 @@ function onEmployeeData(resp) {
     setStat('파싱 오류: ' + e.message);
   }
 }
+
+/* ── 퇴직자 탭 로드 ── */
+function loadResigned() {
+  const old = document.getElementById('_gviz_resigned');
+  if (old) old.remove();
+  const s = document.createElement('script');
+  s.id = '_gviz_resigned';
+  s.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&tq=&sheet=%ED%87%B4%EC%A7%81%EC%9E%90&callback=onResignedData&_=${Date.now()}`;
+  s.onerror = () => {};
+  document.head.appendChild(s);
+}
+
+window.onResignedData = function(resp) {
+  try {
+    if (!resp || resp.status !== 'ok') return;
+    const cols = resp.table.cols;
+    const rows = resp.table.rows;
+
+    // 컬럼 탐색 (재직자 탭과 동일 구조)
+    let iB=-1, iN=-1, iD=-1, iE=-1;
+    const find = (arr) => arr.forEach((c, i) => {
+      const t = String(c?.label ?? c?.v ?? c?.f ?? '').trim();
+      if (t==='지점') iB=i;
+      else if (t==='이름') iN=i;
+      else if (t.includes('입사')) iD=i;
+      else if (t.includes('퇴사')||t.includes('퇴직')) iE=i;
+    });
+    find(cols);
+    let dataStart = 0;
+    if (iB<0 || iN<0) {
+      for (let ri=0; ri<Math.min(rows.length,5); ri++) {
+        const cells = (rows[ri].c||[]).map(c => ({label: String(c?.f||c?.v||'').trim()}));
+        iB=-1; iN=-1; iD=-1; iE=-1;
+        find(cells);
+        if (iB>=0 && iN>=0) { dataStart=ri+1; break; }
+      }
+    }
+    if (iB<0) iB=1; if (iN<0) iN=2; if (iD<0) iD=7; if (iE<0) iE=9;
+
+    const getStr = (row, i) => (i>=0 && row.c && row.c[i]) ? String(row.c[i].f||row.c[i].v||'').trim() : '';
+    const parseDate = (cell) => {
+      if (!cell) return '';
+      const src = String(cell.f||'') + ' ' + String(cell.v||'');
+      const m = src.match(/Date\((\d{4}),(\d{1,2}),(\d{1,2})\)/);
+      if (m) return `${m[1]}-${String(parseInt(m[2])+1).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+      const m2 = src.match(/(\d{4})[.\-\s\/년]+(\d{1,2})[.\-\s\/월]+(\d{1,2})/);
+      if (m2) return `${m2[1]}-${String(m2[2]).padStart(2,'0')}-${String(m2[3]).padStart(2,'0')}`;
+      return '';
+    };
+
+    resignedEmployees = [];
+    rows.slice(dataStart).forEach(row => {
+      const branch = getStr(row, iB);
+      const name   = getStr(row, iN);
+      if (!branch || !name) return;
+      let exitDate = parseDate(row.c && row.c[iE]);
+      if (!exitDate) {
+        const raw = getStr(row, iE);
+        const m2 = raw.match(/(\d{4})[.\-\s\/년]+(\d{1,2})[.\-\s\/월]+(\d{1,2})/);
+        if (m2) exitDate = `${m2[1]}-${String(m2[2]).padStart(2,'0')}-${String(m2[3]).padStart(2,'0')}`;
+      }
+      const hireDate = parseDate(row.c && row.c[iD]);
+      resignedEmployees.push({ branch, name, hire_date: hireDate, exit_date: exitDate });
+    });
+
+    renderDashboard(); // 퇴직자 데이터 반영해 재렌더
+  } catch(e) { console.warn('퇴직자 탭 파싱 오류:', e); }
+};
 
 /* ── localStorage 유틸 ── */
 function lsKey(y, m) { return `cclime_sch_${y}_${String(m).padStart(2,'0')}`; }
@@ -747,8 +818,14 @@ function calcStats() {
     return hy === y && hm === m;
   });
 
+  // 퇴사자 풀: 재직자 탭(퇴사예정일 있는 자) + 퇴직자 탭 전체
+  const allExitPool = [
+    ...employees.filter(e => e.exit_date),
+    ...resignedEmployees,
+  ];
+
   // 당월 퇴사자
-  const exited = employees.filter(e => {
+  const exited = allExitPool.filter(e => {
     if (!e.exit_date || e.exit_date.length < 7) return false;
     const [ey, em] = e.exit_date.split('-').map(Number);
     return ey === y && em === m;
@@ -763,7 +840,7 @@ function calcStats() {
 
   // 최근 3개월 퇴사자 (이번달 포함)
   const [y3, m3] = (() => { const d = new Date(y, m - 3, 1); return [d.getFullYear(), d.getMonth() + 1]; })();
-  const exited3m = employees.filter(e => {
+  const exited3m = allExitPool.filter(e => {
     if (!e.exit_date || e.exit_date.length < 7) return false;
     const [ey, em] = e.exit_date.split('-').map(Number);
     const ym = ey * 12 + em, from = y3 * 12 + m3, to = y * 12 + m;
