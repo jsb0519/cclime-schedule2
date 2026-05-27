@@ -493,12 +493,12 @@ function loadResigned() {
   if (old) old.remove();
   const s = document.createElement('script');
   s.id = '_gviz_resigned';
-  s.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&tq=&sheet=%ED%87%B4%EC%A7%81%EC%9E%90&callback=onResignedData&_=${Date.now()}`;
+  s.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=responseHandler:onResignedData;out:json&sheet=%ED%87%B4%EC%A7%81%EC%9E%90&_=${Date.now()}`;
   s.onerror = () => {};
   document.head.appendChild(s);
 }
 
-window.onResignedData = function(resp) {
+function onResignedData(resp) {
   try {
     if (!resp || resp.status !== 'ok') return;
     const cols = resp.table.cols;
@@ -553,7 +553,7 @@ window.onResignedData = function(resp) {
 
     renderDashboard(); // 퇴직자 데이터 반영해 재렌더
   } catch(e) { console.warn('퇴직자 탭 파싱 오류:', e); }
-};
+}
 
 /* ── localStorage 유틸 ── */
 function lsKey(y, m) { return `cclime_sch_${y}_${String(m).padStart(2,'0')}`; }
