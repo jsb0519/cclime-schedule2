@@ -41,6 +41,17 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .btn-refresh{padding:6px 13px;background:#fff;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer}
 .btn-refresh:hover{background:#f5f5f5}
 
+/* ─ Branch Filter ─ */
+.branch-filter{background:#fff;border-radius:12px;padding:10px 16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);display:none;flex-wrap:wrap;align-items:center;gap:6px}
+.branch-filter.active{display:flex}
+.bf-label{font-size:12px;font-weight:700;color:#555;white-space:nowrap;margin-right:2px}
+.bf-all-btn{padding:4px 10px;border:1px solid #ddd;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:#fff;font-family:inherit;color:#555}
+.bf-all-btn:hover{background:#f5f5f5}
+.bf-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;cursor:pointer;padding:4px 9px;border-radius:20px;border:1.5px solid #ddd;background:#fff;color:#888;user-select:none;transition:.12s;white-space:nowrap}
+.bf-chip:hover{border-color:#4F46E5;color:#4F46E5}
+.bf-chip.on{background:#EEF2FF;border-color:#4F46E5;color:#4F46E5}
+.bf-divider{width:1px;height:18px;background:#e0e0e0;margin:0 2px}
+
 .sch-outer{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);overflow:auto;max-height:calc(100vh - 190px)}
 #sch-table{border-collapse:collapse;font-size:11px;white-space:nowrap}
 #sch-table thead th{background:#1a1a2e;color:#fff;padding:7px 3px;font-weight:600;position:sticky;top:0;z-index:5;text-align:center;min-width:38px}
@@ -157,6 +168,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <span id="fb-status" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
 <span id="edit-hint" style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
   </div>
+  <div class="branch-filter" id="branch-filter"></div>
   <div class="sch-outer">
     <table id="sch-table">
       <thead id="sch-head"></thead>
@@ -367,6 +379,7 @@ const HOLIDAYS = {
 let employees = [];
 let schData = {};
 let _hiredList = [], _exitedList = [];
+let _checkedBranches = null; // null = not yet initialized (show all)
 let curY = new Date().getFullYear();
 let curM = new Date().getMonth() + 1;
 let dirty = false;
@@ -1008,6 +1021,7 @@ function renderDashboard() {
 function renderSchedule() {
   document.getElementById('month-lbl').textContent = `${curY}년 ${curM}월`;
   schData = loadLs(curY, curM);
+  renderBranchFilter();
   buildTable();
   attachFb(curY, curM);
   setStat('근무표 불러오는 중...');
@@ -1286,7 +1300,11 @@ function buildTable() {
   const days = new Date(curY, curM, 0).getDate();
   const holidays = getHolidays(curY);
 
-  let emps = employees.filter(e => !branch || e.branch === branch);
+  let emps = employees.filter(e => {
+    if (branch) return e.branch === branch;
+    if (_checkedBranches === null || _checkedBranches.size === 0) return _checkedBranches === null;
+    return _checkedBranches.has(e.branch);
+  });
   // 퇴사월이 현재 월보다 이전인 직원 제외
   emps = emps.filter(e => {
     if (!e.exit_date || e.exit_date.length < 10) return true;
@@ -1566,6 +1584,7 @@ function nextMonth() {
 }
 function onBranchChange() {
   schData = loadLs(curY, curM);
+  renderBranchFilter();
   buildTable();
   attachFb(curY, curM);
   updateNavBtns();
@@ -1576,7 +1595,55 @@ function populateBranches() {
   const cur = sel.value;
   sel.innerHTML = '<option value="">전체지점 (보기전용)</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
   if (cur && branches.includes(cur)) sel.value = cur;
+  // 새로 생긴 지점은 자동으로 체크 목록에 추가
+  if (_checkedBranches !== null) branches.forEach(b => { if (!_checkedBranches.has(b)) _checkedBranches.add(b); });
+  renderBranchFilter();
 }
+/* ── 지점 체크박스 필터 ── */
+function renderBranchFilter() {
+  const el = document.getElementById('branch-filter');
+  if (!el) return;
+  const branch = document.getElementById('branch-sel').value;
+  if (branch) { el.classList.remove('active'); return; } // 편집 모드: 필터 숨김
+
+  const branches = [...new Set(employees.map(e => e.branch))].sort((a,b) => (parseInt(a)||999)-(parseInt(b)||999));
+  if (!branches.length) { el.classList.remove('active'); return; }
+
+  // 최초 초기화: 전체 선택
+  if (_checkedBranches === null) _checkedBranches = new Set(branches);
+
+  const chips = branches.map(b => {
+    const on = _checkedBranches.has(b);
+    return `<span class="bf-chip${on ? ' on' : ''}" data-branch="${b.replace(/"/g,'&quot;')}" onclick="toggleBranchCheck(this)">${b}</span>`;
+  }).join('');
+
+  el.classList.add('active');
+  el.innerHTML = `
+    <span class="bf-label">지점 필터</span>
+    <button class="bf-all-btn" onclick="setBranchFilterAll(true)">전체 선택</button>
+    <button class="bf-all-btn" onclick="setBranchFilterAll(false)">전체 해제</button>
+    <span class="bf-divider"></span>
+    ${chips}`;
+}
+
+function toggleBranchCheck(el) {
+  if (_checkedBranches === null) return;
+  const b = el.dataset.branch;
+  if (_checkedBranches.has(b)) _checkedBranches.delete(b);
+  else _checkedBranches.add(b);
+  el.classList.toggle('on', _checkedBranches.has(b));
+  buildTable();
+}
+
+function setBranchFilterAll(checked) {
+  const branches = [...new Set(employees.map(e => e.branch))];
+  if (_checkedBranches === null) _checkedBranches = new Set();
+  _checkedBranches.clear();
+  if (checked) branches.forEach(b => _checkedBranches.add(b));
+  renderBranchFilter();
+  buildTable();
+}
+
 function setStat(msg) { document.getElementById('stat-text').textContent = msg; }
 
 function showPeopleList(type) {
