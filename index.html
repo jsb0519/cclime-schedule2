@@ -42,7 +42,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .btn-refresh:hover{background:#f5f5f5}
 
 /* ─ Branch Filter ─ */
-.branch-filter{display:none;flex-wrap:wrap;align-items:center;gap:6px}
+.branch-filter{background:#fff;border-radius:12px;padding:8px 14px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);display:none;flex-wrap:wrap;align-items:center;gap:6px}
 .branch-filter.active{display:flex}
 .bf-label{font-size:12px;font-weight:700;color:#555;white-space:nowrap;margin-right:2px}
 .bf-all-btn{padding:4px 10px;border:1px solid #ddd;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:#fff;font-family:inherit;color:#555}
@@ -165,10 +165,10 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <button class="nav-btn" id="btn-next" onclick="nextMonth()">▶</button>
     <button class="btn-init" id="btn-init" onclick="initMonth()">📋 당월 초기화</button>
     <button class="btn-excel" onclick="downloadExcel()">⬇ 엑셀 다운로드</button>
-    <div class="branch-filter" id="branch-filter"></div>
     <span id="fb-status" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
 <span id="edit-hint" style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
   </div>
+  <div class="branch-filter" id="branch-filter"></div>
   <div class="sch-outer">
     <table id="sch-table">
       <thead id="sch-head"></thead>
@@ -1618,7 +1618,11 @@ function renderBranchFilter() {
   }).join('');
 
   el.classList.add('active');
-  el.innerHTML = chips;
+  el.innerHTML = `
+    <button class="bf-all-btn" onclick="setBranchFilterAll(true)">전체 선택</button>
+    <button class="bf-all-btn" onclick="setBranchFilterAll(false)">전체 해제</button>
+    <span class="bf-divider"></span>
+    ${chips}`;
 }
 
 function toggleBranchCheck(el) {
