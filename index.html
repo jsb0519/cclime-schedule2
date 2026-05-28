@@ -1618,12 +1618,7 @@ function renderBranchFilter() {
   }).join('');
 
   el.classList.add('active');
-  el.innerHTML = `
-    <span class="bf-label">지점 필터</span>
-    <button class="bf-all-btn" onclick="setBranchFilterAll(true)">전체 선택</button>
-    <button class="bf-all-btn" onclick="setBranchFilterAll(false)">전체 해제</button>
-    <span class="bf-divider"></span>
-    ${chips}`;
+  el.innerHTML = chips;
 }
 
 function toggleBranchCheck(el) {
