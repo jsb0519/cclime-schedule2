@@ -97,6 +97,13 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .sval-neg{color:#DC2626}
 .sval-warn{color:#D97706}
 .btn-excel:hover{background:#E8F5E9}
+.stat-card.clickable{cursor:pointer;transition:box-shadow .15s,transform .1s}
+.stat-card.clickable:hover{box-shadow:0 4px 16px rgba(79,70,229,.18);transform:translateY(-2px)}
+.people-list-item{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
+.people-list-item:last-child{border-bottom:none}
+.pli-branch{font-size:11px;color:#888;min-width:70px;flex-shrink:0;word-break:keep-all}
+.pli-name{font-weight:700;flex:1}
+.pli-date{font-size:11px;color:#aaa;white-space:nowrap}
 /* ─ Day Modal ─ */
 .dm-types{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
 .dm-type-btn{padding:9px 16px;border:2px solid #e0e0e0;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;background:#fff;transition:.15s;font-family:inherit;color:#555}
@@ -155,6 +162,17 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
       <thead id="sch-head"></thead>
       <tbody id="sch-body"></tbody>
     </table>
+  </div>
+</div>
+
+<!-- ══ PEOPLE LIST MODAL ══ -->
+<div class="overlay" id="people-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="min-width:320px;max-width:480px;width:90vw">
+    <h3 id="people-modal-title">—</h3>
+    <div id="people-modal-body" style="max-height:55vh;overflow-y:auto;margin:0 -4px;padding:0 4px"></div>
+    <div class="modal-btns">
+      <button class="btn-ok" onclick="document.getElementById('people-modal').classList.remove('open')">닫기</button>
+    </div>
   </div>
 </div>
 
@@ -348,6 +366,7 @@ const HOLIDAYS = {
 
 let employees = [];
 let schData = {};
+let _hiredList = [], _exitedList = [];
 let curY = new Date().getFullYear();
 let curM = new Date().getMonth() + 1;
 let dirty = false;
@@ -865,7 +884,7 @@ function calcStats() {
       }, 0) / withHire.length
     : 0;
 
-  return { hired: hired.length, exited: exited.length,
+  return { hired: hired.length, hiredList: hired, exited: exited.length, exitedList: exited,
            net: hired.length - exited.length,
            turnover1m, turnover3m, avgMonths, currentCount: current.length };
 }
@@ -915,6 +934,8 @@ function renderDashboard() {
 
   /* 통계 카드 */
   const st = calcStats();
+  _hiredList = st.hiredList;
+  _exitedList = st.exitedList;
   const netCls = st.net > 0 ? 'sval-pos' : st.net < 0 ? 'sval-neg' : '';
   const netSign = st.net > 0 ? '+' : '';
   const t1Cls = st.turnover1m >= 5 ? 'sval-neg' : st.turnover1m >= 2 ? 'sval-warn' : 'sval-pos';
@@ -923,13 +944,13 @@ function renderDashboard() {
     ? `${Math.round(st.avgMonths)}개월`
     : `${Math.floor(st.avgMonths/12)}년 ${Math.round(st.avgMonths%12)}개월`;
   document.getElementById('dash-stats').innerHTML = `
-    <div class="stat-card">
-      <div class="slbl">당월 입사자</div>
+    <div class="stat-card clickable" onclick="showPeopleList('hired')">
+      <div class="slbl">당월 입사자 ›</div>
       <div class="sval sval-pos">${st.hired}명</div>
       <div class="ssub">순변동 ${st.net > 0 ? '+' : ''}${st.net} · 퇴사 ${st.exited}명</div>
     </div>
-    <div class="stat-card">
-      <div class="slbl">당월 퇴사자</div>
+    <div class="stat-card clickable" onclick="showPeopleList('exited')">
+      <div class="slbl">당월 퇴사자 ›</div>
       <div class="sval ${st.exited > 0 ? 'sval-neg' : ''}">${st.exited}명</div>
       <div class="ssub">재직 ${st.currentCount}명 기준</div>
     </div>
@@ -1557,6 +1578,33 @@ function populateBranches() {
   if (cur && branches.includes(cur)) sel.value = cur;
 }
 function setStat(msg) { document.getElementById('stat-text').textContent = msg; }
+
+function showPeopleList(type) {
+  const list = type === 'hired' ? _hiredList : _exitedList;
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth() + 1;
+  const mLabel = `${y}년 ${m}월`;
+  const isHired = type === 'hired';
+  const title = isHired ? `${mLabel} 입사자 (${list.length}명)` : `${mLabel} 퇴사자 (${list.length}명)`;
+  const dateKey = isHired ? 'hire_date' : 'exit_date';
+  document.getElementById('people-modal-title').textContent = title;
+  if (!list.length) {
+    document.getElementById('people-modal-body').innerHTML =
+      `<div style="text-align:center;padding:30px;color:#aaa">해당 인원이 없습니다</div>`;
+  } else {
+    const sorted = [...list].sort((a, b) => (a[dateKey]||'').localeCompare(b[dateKey]||''));
+    document.getElementById('people-modal-body').innerHTML = sorted.map(e => {
+      const d = e[dateKey] || '';
+      const dateStr = d.length >= 10 ? d.replace(/(\d{4})-(\d{2})-(\d{2})/, '$2/$3') : '—';
+      return `<div class="people-list-item">
+        <span class="pli-branch">${e.branch}</span>
+        <span class="pli-name">${e.name}</span>
+        <span class="pli-date">${isHired ? '입사' : '퇴사'} ${dateStr}</span>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('people-modal').classList.add('open');
+}
 
 /* ── 엑셀 다운로드 ── */
 async function downloadExcel() {
