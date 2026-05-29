@@ -378,7 +378,7 @@ const HOLIDAYS = {
 
 let employees = [];
 let schData = {};
-let _hiredList = [], _exitedList = [];
+let _hiredList = [], _exitedList = [], _upcomingHireList = [], _upcomingExitList = [];
 let _checkedBranches = null; // null = not yet initialized (show all)
 let curY = new Date().getFullYear();
 let curM = new Date().getMonth() + 1;
@@ -897,8 +897,22 @@ function calcStats() {
       }, 0) / withHire.length
     : 0;
 
+  // 입사예정자 (금일 포함): hire_date >= 오늘
+  const upcomingHire = employees.filter(e => {
+    if (!e.hire_date || e.hire_date.length < 10) return false;
+    return e.hire_date >= todayStr;
+  }).sort((a, b) => a.hire_date.localeCompare(b.hire_date));
+
+  // 퇴사예정자 (금일 포함): exit_date >= 오늘
+  const upcomingExit = employees.filter(e => {
+    if (!e.exit_date || e.exit_date.length < 10) return false;
+    return e.exit_date >= todayStr;
+  }).sort((a, b) => a.exit_date.localeCompare(b.exit_date));
+
   return { hired: hired.length, hiredList: hired, exited: exited.length, exitedList: exited,
            net: hired.length - exited.length,
+           upcomingHire: upcomingHire.length, upcomingHireList: upcomingHire,
+           upcomingExit: upcomingExit.length, upcomingExitList: upcomingExit,
            turnover1m, turnover3m, avgMonths, currentCount: current.length };
 }
 
@@ -949,6 +963,8 @@ function renderDashboard() {
   const st = calcStats();
   _hiredList = st.hiredList;
   _exitedList = st.exitedList;
+  _upcomingHireList = st.upcomingHireList;
+  _upcomingExitList = st.upcomingExitList;
   const netCls = st.net > 0 ? 'sval-pos' : st.net < 0 ? 'sval-neg' : '';
   const netSign = st.net > 0 ? '+' : '';
   const t1Cls = st.turnover1m >= 5 ? 'sval-neg' : st.turnover1m >= 2 ? 'sval-warn' : 'sval-pos';
@@ -966,6 +982,16 @@ function renderDashboard() {
       <div class="slbl">당월 퇴사자 ›</div>
       <div class="sval ${st.exited > 0 ? 'sval-neg' : ''}">${st.exited}명</div>
       <div class="ssub">재직 ${st.currentCount}명 기준</div>
+    </div>
+    <div class="stat-card clickable" onclick="showPeopleList('upcomingHire')">
+      <div class="slbl">입사예정자 ›</div>
+      <div class="sval sval-pos">${st.upcomingHire}명</div>
+      <div class="ssub">금일 포함</div>
+    </div>
+    <div class="stat-card clickable" onclick="showPeopleList('upcomingExit')">
+      <div class="slbl">퇴사예정자 ›</div>
+      <div class="sval ${st.upcomingExit > 0 ? 'sval-warn' : ''}">${st.upcomingExit}명</div>
+      <div class="ssub">금일 포함</div>
     </div>
     <div class="stat-card">
       <div class="slbl">당월 퇴사율</div>
@@ -1646,14 +1672,19 @@ function setBranchFilterAll(checked) {
 function setStat(msg) { document.getElementById('stat-text').textContent = msg; }
 
 function showPeopleList(type) {
-  const list = type === 'hired' ? _hiredList : _exitedList;
   const today = new Date();
   const y = today.getFullYear(), m = today.getMonth() + 1;
   const mLabel = `${y}년 ${m}월`;
-  const isHired = type === 'hired';
-  const title = isHired ? `${mLabel} 입사자 (${list.length}명)` : `${mLabel} 퇴사자 (${list.length}명)`;
-  const dateKey = isHired ? 'hire_date' : 'exit_date';
-  document.getElementById('people-modal-title').textContent = title;
+
+  const cfg = {
+    hired:        { list: _hiredList,        dateKey: 'hire_date', label: '입사', title: `${mLabel} 입사자` },
+    exited:       { list: _exitedList,       dateKey: 'exit_date', label: '퇴사', title: `${mLabel} 퇴사자` },
+    upcomingHire: { list: _upcomingHireList, dateKey: 'hire_date', label: '입사', title: '입사예정자 (금일 포함)' },
+    upcomingExit: { list: _upcomingExitList, dateKey: 'exit_date', label: '퇴사', title: '퇴사예정자 (금일 포함)' },
+  };
+  const { list, dateKey, label, title } = cfg[type] || cfg.hired;
+
+  document.getElementById('people-modal-title').textContent = `${title} (${list.length}명)`;
   if (!list.length) {
     document.getElementById('people-modal-body').innerHTML =
       `<div style="text-align:center;padding:30px;color:#aaa">해당 인원이 없습니다</div>`;
@@ -1665,7 +1696,7 @@ function showPeopleList(type) {
       return `<div class="people-list-item">
         <span class="pli-branch">${e.branch}</span>
         <span class="pli-name">${e.name}</span>
-        <span class="pli-date">${isHired ? '입사' : '퇴사'} ${dateStr}</span>
+        <span class="pli-date">${label} ${dateStr}</span>
       </div>`;
     }).join('');
   }
