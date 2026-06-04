@@ -508,6 +508,62 @@ function onEmployeeData(resp) {
         const branch = document.getElementById('branch-sel').value;
         if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
       }
+
+      // work_type / belt 변경 감지 → 출퇴근 시간만 업데이트 (휴무·연차 유지)
+      let wtChanged = false;
+      employees.forEach(emp => {
+        const key = emp.branch + '||' + emp.name;
+        const sd = schData[key];
+        if (!sd) return;
+
+        const newWt = parseWorkType(emp.work_type || '');
+        const newStoreHours = newWt.hours + 1;
+        const newSlots = getSlots(newStoreHours);
+        const hoursChanged = sd.shift_hours !== newStoreHours;
+        const beltChanged  = sd.belt !== (emp.belt || '화이트');
+
+        if (!hoursChanged && !beltChanged) return;
+
+        if (beltChanged) sd.belt = emp.belt || '화이트';
+
+        if (hoursChanged) {
+          sd.shift_hours = newStoreHours;
+          sd.shift_slots = newSlots;
+          sd.work_type   = emp.work_type || '';
+
+          // 근무일 출근 시간 재계산 (off_days·day_types 보존, hire/exit 범위 내)
+          const daysInMonth = new Date(curY, curM, 0).getDate();
+          const ROT_INT = sd.rotation_interval || 2;
+          const basePos = sd.shift_base_offset || 0;
+          const offs = new Set(sd.off_days || []);
+
+          let startDay = 1, endDay = daysInMonth;
+          if (sd.hire_date && sd.hire_date.length >= 10) {
+            const [hy, hm, hd] = sd.hire_date.split('-').map(Number);
+            if (hy === curY && hm === curM) startDay = hd;
+          }
+          if (sd.exit_date && sd.exit_date.length >= 10) {
+            const [ey, em, ed] = sd.exit_date.split('-').map(Number);
+            if (ey === curY && em === curM) endDay = ed;
+          }
+
+          const newStarts = {};
+          for (let d = startDay; d <= endDay; d++) {
+            if (offs.has(d) || (sd.day_types && sd.day_types[String(d)])) continue;
+            const rot = Math.floor((d - 1) / ROT_INT);
+            newStarts[String(d)] = newSlots[(basePos + rot) % newSlots.length];
+          }
+          sd.shift_starts = newStarts;
+        }
+
+        wtChanged = true;
+      });
+
+      if (wtChanged) {
+        saveLs(curY, curM, schData);
+        const branch = document.getElementById('branch-sel').value;
+        if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
+      }
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
     // 당월+2개월 자동 생성: 지점 선택 시 해당 지점만, 전체지점 뷰에서는 모든 지점 백그라운드 생성
