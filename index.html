@@ -1007,13 +1007,9 @@ function renderDashboard() {
   const bt = {};
   BELT_ORDER.forEach(l => { bt[l]=active.filter(e=>(BELT_ORDER.includes(e.belt)?e.belt:'실습생')===l).length; });
 
-  let sm = `<div class="card card-total"><div class="lbl">전체</div><div class="val">${active.length}</div></div>`;
-  BELT_ORDER.forEach(belt => {
-    if (!bt[belt]) return;
-    const s = BS[belt]||{bg:'#eee',fg:'#333'};
-    sm += `<div class="card" style="background:${s.bg};color:${s.fg}"><div class="lbl">${belt}</div><div class="val">${bt[belt]}</div></div>`;
-  });
-  document.getElementById('dash-summary').innerHTML = sm;
+  const summaryEl = document.getElementById('dash-summary');
+  summaryEl.innerHTML = '';
+  summaryEl.style.display = 'none';
 
   /* 통계 카드 */
   const st = calcStats();
@@ -1087,9 +1083,19 @@ function renderDashboard() {
     const s = BS[belt]||{bg:'#eee',fg:'#333'};
     return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800">${bt[belt]||'-'}</td>`;
   }).join('');
+  const topTotalsRow = `<tr>
+    <td colspan="3" style="background:#4F46E5;color:#fff;text-align:center;font-weight:800;font-size:16px;padding:9px 10px">전체 ${active.length}명</td>
+    ${BELT_ORDER.map(belt => {
+      const s = BS[belt]||{bg:'#eee',fg:'#333'};
+      return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800;font-size:14px;padding:9px 4px">${bt[belt]||'-'}</td>`;
+    }).join('')}
+  </tr>`;
   document.getElementById('dash-wrap').innerHTML = `
   <table class="dash-tbl">
-    <thead><tr><th>No.</th><th>지점</th><th>합계</th>${beltTh}</tr></thead>
+    <thead>
+      <tr><th>No.</th><th>지점</th><th>합계</th>${beltTh}</tr>
+      ${topTotalsRow}
+    </thead>
     <tbody>${body}
       <tr style="background:#F8F8FF;font-weight:800;border-top:3px solid #4F46E5">
         <td colspan="2" style="text-align:center">합계</td>
