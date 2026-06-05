@@ -1025,6 +1025,11 @@ function renderDashboard() {
     ? `${Math.round(st.avgMonths)}개월`
     : `${Math.floor(st.avgMonths/12)}년 ${Math.round(st.avgMonths%12)}개월`;
   document.getElementById('dash-stats').innerHTML = `
+    <div class="stat-card">
+      <div class="slbl">재직자</div>
+      <div class="sval" style="color:#4F46E5">${active.length}명</div>
+      <div class="ssub">오늘 기준</div>
+    </div>
     <div class="stat-card clickable" onclick="showPeopleList('hired')">
       <div class="slbl">당월 입사자 ›</div>
       <div class="sval sval-pos">${st.hired}명</div>
@@ -1063,7 +1068,8 @@ function renderDashboard() {
 
   const beltTh = BELT_ORDER.map(b => {
     const s = BS[b]||{bg:'#555',fg:'#fff'};
-    return `<th><span style="background:${s.bg};color:${s.fg};padding:2px 7px;border-radius:8px;font-size:11px">${b}</span></th>`;
+    const cnt = bt[b] || 0;
+    return `<th><span style="background:${s.bg};color:${s.fg};padding:2px 7px;border-radius:8px;font-size:11px">${b}${cnt ? ` (${cnt})` : ''}</span></th>`;
   }).join('');
 
   let body = '';
@@ -1083,20 +1089,10 @@ function renderDashboard() {
     const s = BS[belt]||{bg:'#eee',fg:'#333'};
     return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800">${bt[belt]||'-'}</td>`;
   }).join('');
-  const topTotalsRow = `<tr style="border-bottom:2px solid #e0e0e0">
-    <td colspan="3" style="background:#F8F8FF;text-align:center;padding:8px 10px;white-space:nowrap">
-      <span style="font-size:11px;color:#888;font-weight:600">전체&nbsp;</span><span style="font-size:18px;font-weight:800;color:#4F46E5">${active.length}</span><span style="font-size:11px;color:#888;font-weight:600">&nbsp;명</span>
-    </td>
-    ${BELT_ORDER.map(belt => {
-      const s = BS[belt]||{bg:'#eee',fg:'#333'};
-      return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800;font-size:13px;padding:8px 4px">${bt[belt]||'-'}</td>`;
-    }).join('')}
-  </tr>`;
   document.getElementById('dash-wrap').innerHTML = `
   <table class="dash-tbl">
     <thead>
       <tr><th>No.</th><th>지점</th><th>합계</th>${beltTh}</tr>
-      ${topTotalsRow}
     </thead>
     <tbody>${body}
       <tr style="background:#F8F8FF;font-weight:800;border-top:3px solid #4F46E5">
