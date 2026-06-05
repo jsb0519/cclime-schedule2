@@ -1007,13 +1007,8 @@ function renderDashboard() {
   const bt = {};
   BELT_ORDER.forEach(l => { bt[l]=active.filter(e=>(BELT_ORDER.includes(e.belt)?e.belt:'실습생')===l).length; });
 
-  let sm = `<div class="card card-total"><div class="lbl">전체</div><div class="val">${active.length}</div></div>`;
-  BELT_ORDER.forEach(belt => {
-    if (!bt[belt]) return;
-    const s = BS[belt]||{bg:'#eee',fg:'#333'};
-    sm += `<div class="card" style="background:${s.bg};color:${s.fg}"><div class="lbl">${belt}</div><div class="val">${bt[belt]}</div></div>`;
-  });
-  document.getElementById('dash-summary').innerHTML = sm;
+  document.getElementById('dash-summary').innerHTML =
+    `<div class="card card-total" style="flex:0;min-width:100px"><div class="lbl">전체 재직</div><div class="val">${active.length}</div></div>`;
 
   /* 통계 카드 */
   const st = calcStats();
@@ -1087,9 +1082,20 @@ function renderDashboard() {
     const s = BS[belt]||{bg:'#eee',fg:'#333'};
     return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800">${bt[belt]||'-'}</td>`;
   }).join('');
+  const totalsRow = `<tr style="border-bottom:3px solid #4F46E5">
+    <td colspan="2" style="background:#EEF2FF;text-align:center;color:#3730A3;font-weight:700;font-size:11px;padding:7px 8px">전체 합계</td>
+    <td style="background:#EEF2FF;text-align:center;font-weight:800;font-size:16px;color:#4F46E5;padding:7px 4px">${active.length}</td>
+    ${BELT_ORDER.map(belt => {
+      const s = BS[belt]||{bg:'#eee',fg:'#333'};
+      return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800;font-size:13px;padding:7px 4px">${bt[belt]||'-'}</td>`;
+    }).join('')}
+  </tr>`;
   document.getElementById('dash-wrap').innerHTML = `
   <table class="dash-tbl">
-    <thead><tr><th>No.</th><th>지점</th><th>합계</th>${beltTh}</tr></thead>
+    <thead>
+      <tr><th>No.</th><th>지점</th><th>합계</th>${beltTh}</tr>
+      ${totalsRow}
+    </thead>
     <tbody>${body}
       <tr style="background:#F8F8FF;font-weight:800;border-top:3px solid #4F46E5">
         <td colspan="2" style="text-align:center">합계</td>
