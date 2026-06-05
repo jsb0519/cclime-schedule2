@@ -188,6 +188,28 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
   </div>
 </div>
 
+<!-- ══ BRANCH DETAIL MODAL ══ -->
+<div class="overlay" id="branch-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="width:min(920px,96vw);max-height:90vh;display:flex;flex-direction:column;padding:20px">
+    <h3 id="branch-modal-title" style="flex-shrink:0;margin-bottom:12px">—</h3>
+    <div id="branch-modal-stats" style="flex-shrink:0;margin-bottom:14px"></div>
+    <div style="display:flex;gap:14px;overflow:hidden;flex:1;min-height:0">
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden">
+        <div id="branch-active-title" style="font-size:13px;font-weight:700;color:#1a1a2e;margin-bottom:6px;flex-shrink:0"></div>
+        <div id="branch-active-list" style="overflow-y:auto;flex:1;border:1px solid #f0f0f0;border-radius:8px"></div>
+      </div>
+      <div style="width:1px;background:#e8e8e8;flex-shrink:0"></div>
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden">
+        <div id="branch-exited-title" style="font-size:13px;font-weight:700;color:#1a1a2e;margin-bottom:6px;flex-shrink:0"></div>
+        <div id="branch-exited-list" style="overflow-y:auto;flex:1;border:1px solid #f0f0f0;border-radius:8px"></div>
+      </div>
+    </div>
+    <div class="modal-btns" style="flex-shrink:0;margin-top:12px">
+      <button class="btn-ok" onclick="document.getElementById('branch-modal').classList.remove('open')">닫기</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ DAY STATUS MODAL ══ -->
 <div class="overlay" id="day-modal">
   <div class="modal">
@@ -1009,6 +1031,154 @@ function calcStats() {
            currentCount: current.length };
 }
 
+/* ── 지점 상세 모달 ── */
+function showBranchModal(branch) {
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth() + 1;
+  const todayStr = `${y}-${String(m).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+  // 재직자 (오늘 기준, 입사일 오래된 순)
+  const brActive = employees.filter(e => {
+    if (e.branch !== branch) return false;
+    if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > todayStr) return false;
+    if (e.exit_date && e.exit_date.length >= 10 && e.exit_date <= todayStr) return false;
+    return true;
+  }).sort((a, b) => (a.hire_date||'9999').localeCompare(b.hire_date||'9999'));
+
+  // 퇴사자 풀 (재직자+퇴직자 탭 합산, 중복 제거, 퇴사일 오래된 순)
+  const exitSeen = new Set();
+  const brExited = [];
+  [...employees.filter(e => e.branch === branch && e.exit_date),
+   ...resignedEmployees.filter(e => e.branch === branch)].forEach(e => {
+    const k = `${e.name}||${e.hire_date}`;
+    if (!exitSeen.has(k)) { exitSeen.add(k); brExited.push(e); }
+  });
+  brExited.sort((a, b) => (a.exit_date||'9999').localeCompare(b.exit_date||'9999'));
+
+  // 전체 인력 풀 (중복 제거)
+  const allSeen = new Set(); const allBranch = [];
+  [...employees.filter(e => e.branch === branch),
+   ...resignedEmployees.filter(e => e.branch === branch)].forEach(e => {
+    const k = `${e.name}||${e.hire_date}`;
+    if (!allSeen.has(k)) { allSeen.add(k); allBranch.push(e); }
+  });
+
+  // 당월 입사자 (중복 제거)
+  const hiredMSeen = new Set();
+  const hiredM = allBranch.filter(e => {
+    if (!e.hire_date || e.hire_date.length < 7) return false;
+    const [hy, hm] = e.hire_date.split('-').map(Number);
+    if (hy !== y || hm !== m) return false;
+    const k = `${e.name}||${e.hire_date}`;
+    if (hiredMSeen.has(k)) return false; hiredMSeen.add(k); return true;
+  });
+
+  // 당월 퇴사자
+  const exitedM = brExited.filter(e => {
+    if (!e.exit_date || e.exit_date.length < 7) return false;
+    const [ey, em] = e.exit_date.split('-').map(Number);
+    return ey === y && em === m;
+  });
+
+  // 입사/퇴사 예정자
+  const upHire = employees.filter(e => e.branch === branch && e.hire_date && e.hire_date.length >= 10 && e.hire_date >= todayStr);
+  const upExit = employees.filter(e => e.branch === branch && e.exit_date && e.exit_date.length >= 10 && e.exit_date >= todayStr);
+
+  // 당월 퇴사율
+  const avgHead = (Math.max(0, brActive.length + exitedM.length - hiredM.length) + brActive.length) / 2 || 1;
+  const t1m = exitedM.length / avgHead * 100;
+
+  // 3개월 평균 퇴사율 (월별 역산)
+  let hcR = brActive.length;
+  const mRates = [];
+  for (let off = 0; off < 3; off++) {
+    const d2 = new Date(y, m - 1 - off, 1); const my = d2.getFullYear(), mm = d2.getMonth() + 1;
+    const mEx = brExited.filter(e => { if (!e.exit_date || e.exit_date.length < 7) return false; const [ey,em] = e.exit_date.split('-').map(Number); return ey===my&&em===mm; }).length;
+    const mHiSeen = new Set();
+    const mHi = allBranch.filter(e => { if (!e.hire_date||e.hire_date.length<7) return false; const [hy,hm_]=e.hire_date.split('-').map(Number); if(hy!==my||hm_!==mm) return false; const k=`${e.name}||${e.hire_date}`; if(mHiSeen.has(k)) return false; mHiSeen.add(k); return true; }).length;
+    const endC = hcR, startC = Math.max(0, endC + mEx - mHi);
+    mRates.push(mEx / ((startC + endC) / 2 || 1) * 100);
+    hcR = startC;
+  }
+  const t3m = mRates.reduce((s, r) => s + r, 0) / 3;
+
+  // 평균 근속기간 (재직자 + 최근 1년 퇴사자)
+  const oYAgo = new Date(y-1, m-1, today.getDate());
+  const oYAgoStr = `${oYAgo.getFullYear()}-${String(oYAgo.getMonth()+1).padStart(2,'0')}-${String(oYAgo.getDate()).padStart(2,'0')}`;
+  const tSeen = new Set(); const tPool = [];
+  [...brActive.filter(e => e.hire_date && e.hire_date.length >= 10),
+   ...brExited.filter(e => e.exit_date && e.exit_date.length >= 10 && e.hire_date && e.hire_date.length >= 10 && e.exit_date >= oYAgoStr)
+  ].forEach(e => { const k=`${e.name}||${e.hire_date}`; if(!tSeen.has(k)){tSeen.add(k);tPool.push(e);} });
+  const avgM2 = tPool.length ? tPool.reduce((s, e) => {
+    const [hy,hm_,hd] = e.hire_date.split('-').map(Number);
+    const ed = (e.exit_date && e.exit_date.length >= 10) ? (() => { const [ey,em_,ed_]=e.exit_date.split('-').map(Number); return new Date(ey,em_-1,ed_); })() : today;
+    return s + Math.max(0, ed - new Date(hy,hm_-1,hd||1)) / (1000*60*60*24*30.44);
+  }, 0) / tPool.length : 0;
+  const avgM2Str = avgM2 < 12 ? `${Math.round(avgM2)}개월` : `${Math.floor(avgM2/12)}년 ${Math.round(avgM2%12)}개월`;
+
+  const t1Cls = t1m >= 5 ? 'sval-neg' : t1m >= 2 ? 'sval-warn' : 'sval-pos';
+  const t3Cls = t3m >= 10 ? 'sval-neg' : t3m >= 5 ? 'sval-warn' : 'sval-pos';
+
+  // ── 렌더
+  document.getElementById('branch-modal-title').textContent = `📍 ${branch}`;
+  document.getElementById('branch-modal-stats').innerHTML = `
+    <div class="stat-row" style="margin-bottom:0;flex-wrap:wrap">
+      <div class="stat-card" style="min-width:80px"><div class="slbl">재직자</div><div class="sval" style="color:#4F46E5">${brActive.length}명</div><div class="ssub">오늘 기준</div></div>
+      <div class="stat-card" style="min-width:80px"><div class="slbl">당월 입사자</div><div class="sval sval-pos">${hiredM.length}명</div><div class="ssub">순변동 ${hiredM.length-exitedM.length>0?'+':''}${hiredM.length-exitedM.length}</div></div>
+      <div class="stat-card" style="min-width:80px"><div class="slbl">당월 퇴사자</div><div class="sval ${exitedM.length>0?'sval-neg':''}">${exitedM.length}명</div><div class="ssub">&nbsp;</div></div>
+      <div class="stat-card" style="min-width:80px"><div class="slbl">입사예정자</div><div class="sval sval-pos">${upHire.length}명</div><div class="ssub">금일 포함</div></div>
+      <div class="stat-card" style="min-width:80px"><div class="slbl">퇴사예정자</div><div class="sval ${upExit.length>0?'sval-warn':''}">${upExit.length}명</div><div class="ssub">금일 포함</div></div>
+      <div class="stat-card" style="min-width:80px"><div class="slbl">당월 퇴사율</div><div class="sval ${t1Cls}">${t1m.toFixed(1)}%</div><div class="ssub">&nbsp;</div></div>
+      <div class="stat-card" style="min-width:80px"><div class="slbl">3개월 평균 퇴사율</div><div class="sval ${t3Cls}">${t3m.toFixed(1)}%</div><div class="ssub">월별 3개월 평균</div></div>
+      <div class="stat-card" style="min-width:80px"><div class="slbl">평균 근속기간</div><div class="sval" style="font-size:16px">${avgM2Str}</div><div class="ssub">재직자+최근1년 퇴사자</div></div>
+    </div>`;
+
+  const msStr = (hd, ed) => {
+    const end = (ed && ed.length >= 10) ? new Date(...ed.split('-').map((v,i)=>i===1?+v-1:+v)) : today;
+    const ms = (end - new Date(...hd.split('-').map((v,i)=>i===1?+v-1:+v))) / (1000*60*60*24*30.44);
+    return ms < 0 ? '-' : ms < 12 ? `${Math.round(ms)}개월` : `${Math.floor(ms/12)}년 ${Math.round(ms%12)}개월`;
+  };
+
+  document.getElementById('branch-active-title').textContent = `✅ 재직자 ${brActive.length}명`;
+  document.getElementById('branch-active-list').innerHTML = brActive.length ? `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f5f7ff;position:sticky;top:0">
+        <th style="padding:6px 8px;text-align:left;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">이름</th>
+        <th style="padding:6px 6px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">벨트</th>
+        <th style="padding:6px 6px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">입사일</th>
+        <th style="padding:6px 6px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">근속</th>
+      </tr></thead>
+      <tbody>${brActive.map((e,i) => {
+        const s = BS[e.belt]||{bg:'#eee',fg:'#333'};
+        return `<tr style="border-bottom:1px solid #f0f0f0;background:${i%2?'#fff':'#fafafa'}">
+          <td style="padding:5px 8px;font-weight:600">${e.name}</td>
+          <td style="padding:5px 4px;text-align:center"><span style="background:${s.bg};color:${s.fg};padding:1px 5px;border-radius:6px;font-size:10px;font-weight:700">${e.belt}</span></td>
+          <td style="padding:5px 4px;text-align:center;color:#888;font-size:11px">${e.hire_date||'-'}</td>
+          <td style="padding:5px 4px;text-align:center;color:#4F46E5;font-weight:600">${e.hire_date&&e.hire_date.length>=10?msStr(e.hire_date,''):'-'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>` : `<div style="text-align:center;color:#aaa;padding:24px;font-size:13px">재직자 없음</div>`;
+
+  document.getElementById('branch-exited-title').textContent = `🔴 퇴사자 ${brExited.length}명`;
+  document.getElementById('branch-exited-list').innerHTML = brExited.length ? `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#fff5f5;position:sticky;top:0">
+        <th style="padding:6px 8px;text-align:left;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">이름</th>
+        <th style="padding:6px 6px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">입사일</th>
+        <th style="padding:6px 6px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">퇴사일</th>
+        <th style="padding:6px 6px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">근속</th>
+      </tr></thead>
+      <tbody>${brExited.map((e,i) => `<tr style="border-bottom:1px solid #f0f0f0;background:${i%2?'#fff':'#fafafa'}">
+          <td style="padding:5px 8px;font-weight:600">${e.name}</td>
+          <td style="padding:5px 4px;text-align:center;color:#888;font-size:11px">${e.hire_date||'-'}</td>
+          <td style="padding:5px 4px;text-align:center;color:#888;font-size:11px">${e.exit_date||'-'}</td>
+          <td style="padding:5px 4px;text-align:center;color:#DC2626;font-weight:600">${e.hire_date&&e.hire_date.length>=10&&e.exit_date&&e.exit_date.length>=10?msStr(e.hire_date,e.exit_date):'-'}</td>
+        </tr>`).join('')}</tbody>
+    </table>` : `<div style="text-align:center;color:#aaa;padding:24px;font-size:13px">퇴사자 없음</div>`;
+
+  document.getElementById('branch-modal').classList.add('open');
+}
+
 /* ── Dashboard 렌더 ── */
 function renderDashboard() {
   // 오늘 기준 실제 재직자만: 입사일 ≤ 오늘 AND (퇴사일 없거나 퇴사일 > 오늘)
@@ -1119,7 +1289,7 @@ function renderDashboard() {
     }).join('');
     body += `<tr style="background:${i%2?'#fff':'#FAFAFA'}">
       <td style="text-align:center;color:#aaa;font-size:12px">${i+1}</td>
-      <td style="font-weight:700;font-size:11px;max-width:80px;word-break:keep-all;white-space:normal" title="${br}">${br}</td>
+      <td style="font-weight:700;font-size:11px;max-width:80px;word-break:keep-all;white-space:normal;cursor:pointer;color:#4F46E5;text-decoration:underline" title="${br}" onclick="showBranchModal(${JSON.stringify(br)})">${br}</td>
       <td style="text-align:center;font-weight:800;font-size:15px;color:#4F46E5">${tot}</td>${cells}</tr>`;
   });
   const footC = BELT_ORDER.map(belt => {
