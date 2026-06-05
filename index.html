@@ -943,15 +943,31 @@ function calcStats() {
   });
   const turnover3m = exited3m.length / avg * 100;
 
-  // 평균 근속기간 (월 단위)
-  const withHire = current.filter(e => e.hire_date && e.hire_date.length >= 7);
-  const avgMonths = withHire.length
-    ? withHire.reduce((s, e) => {
-        const [hy, hm, hd='1'] = e.hire_date.split('-');
-        const ms = today - new Date(+hy, +hm - 1, +hd);
-        return s + ms / (1000 * 60 * 60 * 24 * 30.44);
-      }, 0) / withHire.length
+  // 평균 근속기간 (최근 1년 기준: 재직자 + 1년 내 퇴사자)
+  const oneYearAgo = new Date(today.getFullYear()-1, today.getMonth(), today.getDate());
+  const oneYearAgoStr = `${oneYearAgo.getFullYear()}-${String(oneYearAgo.getMonth()+1).padStart(2,'0')}-${String(oneYearAgo.getDate()).padStart(2,'0')}`;
+  const recentExited1y = allExitPool.filter(e =>
+    e.exit_date && e.exit_date.length >= 10 &&
+    e.hire_date && e.hire_date.length >= 10 &&
+    e.exit_date >= oneYearAgoStr
+  );
+  const tenureSeen = new Set();
+  const tenurePool = [];
+  [...current.filter(e => e.hire_date && e.hire_date.length >= 10), ...recentExited1y].forEach(e => {
+    const key = `${e.branch}||${e.name}`;
+    if (!tenureSeen.has(key)) { tenureSeen.add(key); tenurePool.push(e); }
+  });
+  const avgMonths = tenurePool.length
+    ? tenurePool.reduce((s, e) => {
+        const [hy, hm, hd] = e.hire_date.split('-').map(Number);
+        const endDate = (e.exit_date && e.exit_date.length >= 10)
+          ? (() => { const [ey,em,ed] = e.exit_date.split('-').map(Number); return new Date(ey,em-1,ed); })()
+          : today;
+        return s + Math.max(0, endDate - new Date(hy,hm-1,hd||1)) / (1000*60*60*24*30.44);
+      }, 0) / tenurePool.length
     : 0;
+  const tenureActiveCount = current.filter(e => e.hire_date && e.hire_date.length >= 10).length;
+  const tenureExitedCount = tenurePool.length - tenureActiveCount;
 
   // 입사예정자 (금일 포함): hire_date >= 오늘
   const upcomingHire = employees.filter(e => {
@@ -969,7 +985,9 @@ function calcStats() {
            net: hired.length - exited.length,
            upcomingHire: upcomingHire.length, upcomingHireList: upcomingHire,
            upcomingExit: upcomingExit.length, upcomingExitList: upcomingExit,
-           turnover1m, turnover3m, avgMonths, currentCount: current.length };
+           turnover1m, turnover3m, avgMonths,
+           tenureActiveCount, tenureExitedCount,
+           currentCount: current.length };
 }
 
 /* ── Dashboard 렌더 ── */
@@ -1061,9 +1079,9 @@ function renderDashboard() {
       <div class="ssub">최근 3개월 퇴사 ${Math.round(st.turnover3m * ((st.currentCount + st.exited - st.hired + st.currentCount)/2) / 100)}명</div>
     </div>
     <div class="stat-card">
-      <div class="slbl">평균 근속기간</div>
+      <div class="slbl">평균 근속기간 (최근 1년)</div>
       <div class="sval" style="font-size:18px">${tenureStr}</div>
-      <div class="ssub">입사일 있는 ${active.filter(e=>e.hire_date&&e.hire_date.length>=7).length}명 기준</div>
+      <div class="ssub">재직 ${st.tenureActiveCount} + 퇴사 ${st.tenureExitedCount}명 기준</div>
     </div>`;
 
   const beltTh = BELT_ORDER.map(b => {
