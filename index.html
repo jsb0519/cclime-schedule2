@@ -1083,11 +1083,13 @@ function renderDashboard() {
     const s = BS[belt]||{bg:'#eee',fg:'#333'};
     return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800">${bt[belt]||'-'}</td>`;
   }).join('');
-  const topTotalsRow = `<tr>
-    <td colspan="3" style="background:#4F46E5;color:#fff;text-align:center;font-weight:800;font-size:16px;padding:9px 10px">전체 ${active.length}명</td>
+  const topTotalsRow = `<tr style="border-bottom:2px solid #e0e0e0">
+    <td colspan="3" style="background:#F8F8FF;text-align:center;padding:8px 10px;white-space:nowrap">
+      <span style="font-size:11px;color:#888;font-weight:600">전체&nbsp;</span><span style="font-size:18px;font-weight:800;color:#4F46E5">${active.length}</span><span style="font-size:11px;color:#888;font-weight:600">&nbsp;명</span>
+    </td>
     ${BELT_ORDER.map(belt => {
       const s = BS[belt]||{bg:'#eee',fg:'#333'};
-      return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800;font-size:14px;padding:9px 4px">${bt[belt]||'-'}</td>`;
+      return `<td style="background:${s.bg};color:${s.fg};text-align:center;font-weight:800;font-size:13px;padding:8px 4px">${bt[belt]||'-'}</td>`;
     }).join('')}
   </tr>`;
   document.getElementById('dash-wrap').innerHTML = `
