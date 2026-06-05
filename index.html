@@ -933,15 +933,34 @@ function calcStats() {
   // 당월 퇴사율
   const turnover1m = exited.length / avg * 100;
 
-  // 최근 3개월 퇴사자 (이번달 포함)
-  const [y3, m3] = (() => { const d = new Date(y, m - 3, 1); return [d.getFullYear(), d.getMonth() + 1]; })();
-  const exited3m = allExitPool.filter(e => {
-    if (!e.exit_date || e.exit_date.length < 7) return false;
-    const [ey, em] = e.exit_date.split('-').map(Number);
-    const ym = ey * 12 + em, from = y3 * 12 + m3, to = y * 12 + m;
-    return ym >= from && ym <= to;
-  });
-  const turnover3m = exited3m.length / avg * 100;
+  // 3개월 평균 퇴사율: 이번달 포함 3개월 각 월별 퇴사율의 평균
+  // 각 월 퇴사율 = 해당월 퇴사자 ÷ ((월초+월말)÷2) × 100, 현재 재직인원에서 역산
+  let hcRolling = current.length;
+  const monthlyRates = [];
+  for (let offset = 0; offset < 3; offset++) {
+    const d = new Date(y, m - 1 - offset, 1);
+    const my = d.getFullYear(), mm = d.getMonth() + 1;
+    const mExited = allExitPool.filter(e => {
+      if (!e.exit_date || e.exit_date.length < 7) return false;
+      const [ey, em] = e.exit_date.split('-').map(Number);
+      return ey === my && em === mm;
+    }).length;
+    const mHiredSeen = new Set();
+    const mHired = allPeopleForHire.filter(e => {
+      if (!e.hire_date || e.hire_date.length < 7) return false;
+      const [hy, hm_] = e.hire_date.split('-').map(Number);
+      if (hy !== my || hm_ !== mm) return false;
+      const k = `${e.branch}||${e.name}`;
+      if (mHiredSeen.has(k)) return false;
+      mHiredSeen.add(k); return true;
+    }).length;
+    const endCount = hcRolling;
+    const startCount = Math.max(0, endCount + mExited - mHired);
+    const avgCount = (startCount + endCount) / 2 || 1;
+    monthlyRates.push(mExited / avgCount * 100);
+    hcRolling = startCount;
+  }
+  const turnover3m = monthlyRates.reduce((s, r) => s + r, 0) / monthlyRates.length;
 
   // 평균 근속기간 (최근 1년 기준: 재직자 + 1년 내 퇴사자)
   const oneYearAgo = new Date(today.getFullYear()-1, today.getMonth(), today.getDate());
@@ -1074,9 +1093,9 @@ function renderDashboard() {
       <div class="ssub">퇴사 ${st.exited} / 평균재직 ${((st.currentCount + st.exited - st.hired + st.currentCount)/2).toFixed(0)}명</div>
     </div>
     <div class="stat-card">
-      <div class="slbl">3개월 퇴사율</div>
+      <div class="slbl">3개월 평균 퇴사율</div>
       <div class="sval ${t3Cls}">${st.turnover3m.toFixed(1)}%</div>
-      <div class="ssub">최근 3개월 퇴사 ${Math.round(st.turnover3m * ((st.currentCount + st.exited - st.hired + st.currentCount)/2) / 100)}명</div>
+      <div class="ssub">월별 퇴사율 3개월 평균</div>
     </div>
     <div class="stat-card">
       <div class="slbl">평균 근속기간</div>
