@@ -1079,9 +1079,9 @@ function renderDashboard() {
       <div class="ssub">최근 3개월 퇴사 ${Math.round(st.turnover3m * ((st.currentCount + st.exited - st.hired + st.currentCount)/2) / 100)}명</div>
     </div>
     <div class="stat-card">
-      <div class="slbl">평균 근속기간 (최근 1년)</div>
+      <div class="slbl">평균 근속기간</div>
       <div class="sval" style="font-size:18px">${tenureStr}</div>
-      <div class="ssub">재직 ${st.tenureActiveCount} + 퇴사 ${st.tenureExitedCount}명 기준</div>
+      <div class="ssub">재직자+최근1년 퇴사자 기준</div>
     </div>`;
 
   const beltTh = BELT_ORDER.map(b => {
