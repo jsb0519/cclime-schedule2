@@ -1329,8 +1329,7 @@ function buildMonthSchedule(y, m) {
   const FW4 = {0:0, 1:3, 2:2, 3:1, 4:1, 5:0, 6:0};
 
   // ══ PHASE 1: 주 단위 휴무 배정 ══
-  const dayLoad = {};
-  for (let d = 1; d <= daysInMonth; d++) dayLoad[d] = 0;
+  const branchLoad = {};  // 지점별 일별 출근 예정 인원
 
   const empData = [];
   employees.forEach(emp => {
@@ -1355,7 +1354,11 @@ function buildMonthSchedule(y, m) {
     const key = emp.branch + '||' + emp.name;
     const availDays = [];
     for (let d = startDay; d <= endDay; d++) availDays.push(d);
-    availDays.forEach(d => dayLoad[d]++);
+    if (!branchLoad[emp.branch]) {
+      branchLoad[emp.branch] = {};
+      for (let d = 1; d <= daysInMonth; d++) branchLoad[emp.branch][d] = 0;
+    }
+    availDays.forEach(d => branchLoad[emp.branch][d]++);
 
     const slots = getSlots(storeHours);
     const hireDow = new Date(y, m-1, startDay).getDay();
@@ -1389,10 +1392,10 @@ function buildMonthSchedule(y, m) {
       } else {
         nOff = Math.round(available.length * offPerWeek / 7);
       }
-      wEmp.push({ key, available, nOff, startDay, endDay, isHireMonth });
+      wEmp.push({ key, available, nOff, startDay, endDay, isHireMonth, branch: emp.branch });
     });
     wEmp.sort((a, b) => b.nOff - a.nOff);
-    wEmp.forEach(({ key, available, nOff, startDay, endDay, isHireMonth }) => {
+    wEmp.forEach(({ key, available, nOff, startDay, endDay, isHireMonth, branch }) => {
       if (!nOff) return;
       const noOff = isHireMonth ? new Set([startDay, startDay+1, startDay+2]) : new Set();
       // 퇴사 당일은 반드시 근무 — 이번 달 퇴사자(endDay < 월말)만 적용
@@ -1400,8 +1403,10 @@ function buildMonthSchedule(y, m) {
       // 매주 수요일은 전체 출근일 — 휴무 배정 불가
       available.filter(d => new Date(y, m-1, d).getDay() === 3).forEach(d => noOff.add(d));
       const candidates = available.filter(d => !noOff.has(d));
-      [...candidates].sort((a, b) => dayLoad[b] - dayLoad[a]).slice(0, Math.min(nOff, candidates.length))
-        .forEach(d => { offMap[key].add(d); dayLoad[d]--; });
+      // 지점 내 출근 인원이 많은 날부터 휴무 배정 → 출근 인원 평균화 (최우선)
+      const load = branchLoad[branch] || {};
+      [...candidates].sort((a, b) => (load[b] || 0) - (load[a] || 0)).slice(0, Math.min(nOff, candidates.length))
+        .forEach(d => { offMap[key].add(d); if (branchLoad[branch]) branchLoad[branch][d]--; });
     });
   });
 
@@ -1625,7 +1630,7 @@ function buildTable() {
     const isHol = hkey in holidays;
     let cls = dow===0 ? 'th-sun' : (dow===6 ? 'th-sat' : '');
     if (isHol) cls = 'th-holiday';
-    hd += `<th class="${cls}"${isHol?` title="${holidays[hkey]}"`:''} >${d}<br><span style="font-size:9px;font-weight:400">${KD[dow]}</span></th>`;
+    hd += `<th class="${cls}">${d}<br><span style="font-size:9px;font-weight:400">${KD[dow]}</span>${isHol ? `<br><span style="font-size:8px;font-weight:500;line-height:1.1;opacity:.9">${holidays[hkey].slice(0,4)}</span>` : ''}</th>`;
   }
   hd += '<th style="background:#2a2a4e;min-width:32px">근무</th><th style="background:#2a2a4e;min-width:32px">휴무</th></tr>';
   document.getElementById('sch-head').innerHTML = hd;

@@ -99,7 +99,7 @@ def build_month_schedule(y, m, employees):
     ROT = 2
     FW5 = {0:0,1:2,2:2,3:1,4:0,5:0,6:0}
     FW4 = {0:0,1:3,2:2,3:1,4:1,5:0,6:0}
-    day_load = {d:0 for d in range(1,dim+1)}
+    branch_load = {}  # 지점별 일별 출근 예정 인원
     emp_data = []
 
     for emp in employees:
@@ -119,14 +119,18 @@ def build_month_schedule(y, m, employees):
 
         key = emp['branch']+'||'+emp['name']
         avail = list(range(start_day, end_day+1))
-        for d in avail: day_load[d] += 1
+        branch = emp['branch']
+        if branch not in branch_load:
+            branch_load[branch] = {d: 0 for d in range(1, dim+1)}
+        for d in avail: branch_load[branch][d] += 1
         slots = get_slots(store_hours)
         py_dow = date(y, m, start_day).weekday()
         js_dow = (py_dow+1) % 7
         is_hire_month = bool(hire and len(hire)>=10 and int(hire[:4])==y and int(hire[5:7])==m)
         emp_data.append({'key':key,'emp':emp,'start_day':start_day,'end_day':end_day,
                          'avail':avail,'dpw':wt['days'],'sh':store_hours,
-                         'slots':slots,'hire_dow':js_dow,'is_hire_month':is_hire_month})
+                         'slots':slots,'hire_dow':js_dow,'is_hire_month':is_hire_month,
+                         'branch':branch})
 
     # 주 목록 (일요일 기준)
     weeks, wd = [], []
@@ -147,7 +151,8 @@ def build_month_schedule(y, m, employees):
             else:
                 n_off = round(len(avail)*(7-ed['dpw'])/7)
             w_emp.append({'key':ed['key'],'avail':avail,'n_off':n_off,
-                          'sd':ed['start_day'],'ed':ed['end_day'],'ihm':ed['is_hire_month']})
+                          'sd':ed['start_day'],'ed':ed['end_day'],'ihm':ed['is_hire_month'],
+                          'branch':ed['branch']})
         w_emp.sort(key=lambda x:-x['n_off'])
         for we in w_emp:
             if not we['n_off']: continue
@@ -156,9 +161,12 @@ def build_month_schedule(y, m, employees):
             if we['ed']<dim: no_off.add(we['ed'])
             # 매주 수요일은 전체 출근일 — 휴무 배정 불가
             no_off |= {d for d in we['avail'] if date(y, m, d).weekday() == 2}
-            cands = sorted([d for d in we['avail'] if d not in no_off], key=lambda d:-day_load[d])
+            cands = [d for d in we['avail'] if d not in no_off]
+            # 지점 내 출근 인원이 많은 날부터 휴무 배정 → 출근 인원 평균화 (최우선)
+            b = we['branch']
+            cands.sort(key=lambda d: -branch_load[b].get(d, 0))
             for d in cands[:we['n_off']]:
-                off_map[we['key']].add(d); day_load[d]-=1
+                off_map[we['key']].add(d); branch_load[b][d]-=1
 
     belt_idx = lambda b: BELT_ORDER.index(b) if b in BELT_ORDER else 8
     branch_list = {}
