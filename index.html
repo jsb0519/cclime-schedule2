@@ -1397,6 +1397,8 @@ function buildMonthSchedule(y, m) {
       const noOff = isHireMonth ? new Set([startDay, startDay+1, startDay+2]) : new Set();
       // 퇴사 당일은 반드시 근무 — 이번 달 퇴사자(endDay < 월말)만 적용
       if (endDay < daysInMonth) noOff.add(endDay);
+      // 매주 수요일은 전체 출근일 — 휴무 배정 불가
+      available.filter(d => new Date(y, m-1, d).getDay() === 3).forEach(d => noOff.add(d));
       const candidates = available.filter(d => !noOff.has(d));
       [...candidates].sort((a, b) => dayLoad[b] - dayLoad[a]).slice(0, Math.min(nOff, candidates.length))
         .forEach(d => { offMap[key].add(d); dayLoad[d]--; });

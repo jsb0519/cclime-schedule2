@@ -1,4 +1,4 @@
-import json, re, urllib.request, urllib.parse, calendar
+import json, re, urllib.request, urllib.parse, calendar, sys
 from datetime import date
 
 SHEET_ID = '1kXGHbBBIAIXoNkXbEXzck0oKGF9RYQddhO279HociSo'
@@ -154,6 +154,8 @@ def build_month_schedule(y, m, employees):
             no_off = set()
             if we['ihm']: sd=we['sd']; no_off={sd,sd+1,sd+2}
             if we['ed']<dim: no_off.add(we['ed'])
+            # 매주 수요일은 전체 출근일 — 휴무 배정 불가
+            no_off |= {d for d in we['avail'] if date(y, m, d).weekday() == 2}
             cands = sorted([d for d in we['avail'] if d not in no_off], key=lambda d:-day_load[d])
             for d in cands[:we['n_off']]:
                 off_map[we['key']].add(d); day_load[d]-=1
@@ -233,9 +235,11 @@ def target_months(today):
     return result
 
 def main():
+    force = '--force' in sys.argv
     today = date.today()
     months = target_months(today)
-    print(f'=== 전체 지점 근무표 자동 초기화 ({months[0][0]}/{months[0][1]}월 ~ {months[-1][0]}/{months[-1][1]}월) ===\n')
+    mode_label = ' [강제 재생성]' if force else ''
+    print(f'=== 전체 지점 근무표 자동 초기화{mode_label} ({months[0][0]}/{months[0][1]}월 ~ {months[-1][0]}/{months[-1][1]}월) ===\n')
 
     print('직원 데이터 로드 중...')
     gviz = fetch_gviz()
@@ -255,7 +259,7 @@ def main():
             if cnt == 0: continue
             try:
                 existing = fb_get_branch(y, m, branch)
-                if existing:
+                if existing and not force:
                     # 신규 입사자 감지
                     missing = {k: v for k, v in sched.items()
                                if v.get('branch') == branch and k not in existing}
@@ -275,11 +279,12 @@ def main():
                         skipped += 1
                 else:
                     fb_set_branch(y, m, branch, sched)
-                    print(f'  [{branch}] {cnt}명 생성 완료 ✓')
+                    label = '재생성' if (existing and force) else '생성'
+                    print(f'  [{branch}] {cnt}명 {label} 완료 ✓')
                     created += 1
             except Exception as e:
                 print(f'  [{branch}] 오류: {e}')
-        print(f'  → 신규생성 {created}개, 신규입사자추가 {added}개, 건너뜀 {skipped}개\n')
+        print(f'  → 신규생성/재생성 {created}개, 신규입사자추가 {added}개, 건너뜀 {skipped}개\n')
 
     print('완료!')
 
