@@ -423,10 +423,11 @@ async function fbGetAll(y, m) {
         const e = normEntry(val);
         if (e) oldFlat[e.branch + '||' + e.name] = e;
       } else {
-        // 신형 per-branch 구조
+        // 신형 per-branch 구조 — 먼저 온 키가 우선(중복 키 형식 충돌 방지)
         for (const v of Object.values(val)) {
           const e = normEntry(v);
-          if (e && e.branch && e.name) newBranch[e.branch + '||' + e.name] = e;
+          const key = e && e.branch && e.name ? e.branch + '||' + e.name : null;
+          if (key && !(key in newBranch)) newBranch[key] = e;
         }
       }
     }
