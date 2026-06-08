@@ -126,6 +126,12 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .dm-type-btn.active[data-type="오후반차"]{background:#E3F2FD;color:#1565C0;border-color:#1565C0}
 .dm-type-btn.active[data-type="대휴"]{background:#F3E5F5;color:#6A1B9A;border-color:#6A1B9A}
 .dm-time-box{background:#F8F9FF;border-radius:10px;padding:12px 16px;margin-bottom:12px}
+/* ─ Password Modal ─ */
+.pw-input{padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;width:100%;outline:none;transition:.15s}
+.pw-input:focus{border-color:#4F46E5}
+.pw-error{font-size:12px;color:#e53935;min-height:18px;margin-top:6px}
+.pw-lock-icon{font-size:32px;text-align:center;margin-bottom:8px}
+.pw-branch-name{font-size:15px;font-weight:700;color:#1a1a2e;text-align:center;margin-bottom:16px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
@@ -236,6 +242,20 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
   </div>
 </div>
 
+<!-- ══ PASSWORD MODAL ══ -->
+<div class="overlay" id="pw-modal">
+  <div class="modal" style="max-width:340px;width:90vw">
+    <div class="pw-lock-icon">🔒</div>
+    <div class="pw-branch-name" id="pw-branch-name"></div>
+    <input class="pw-input" type="password" id="pw-input" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter')submitPw()">
+    <div class="pw-error" id="pw-error"></div>
+    <div class="modal-btns" style="margin-top:16px">
+      <button class="btn-cancel" onclick="cancelPw()">취소</button>
+      <button class="btn-ok" onclick="submitPw()">확인</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ SHIFT MODAL ══ -->
 <div class="overlay" id="modal">
   <div class="modal">
@@ -253,6 +273,73 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 </div>
 
 <script>
+/* ── 지점 비밀번호 ── */
+const BRANCH_PASSWORDS = {
+  '01. 신사본점':  'cc2847',
+  '02. 강남사옥점':'cc5193',
+  '03. 강남구청점':'cc7364',
+  '04. 삼성점':    'cc1528',
+  '05. 선릉점':    'cc9073',
+  '06. 중앙대점':  'cc4612',
+  '07. 홍대점':    'cc8351',
+  '08. 목동점':    'cc2976',
+  '09. 수원점':    'cc6438',
+  '10. 판교점':    'cc3917',
+  '11. 부천점':    'cc7285',
+  '12. 대전시청점':'cc4163',
+  '13. 대전관저점':'cc8729',
+  '14. 광주점':    'cc5384',
+  '15. 목포점':    'cc1697',
+  '16. 대구점':    'cc9241',
+  '17. 부산서면점':'cc6835',
+  '18. 부산센텀점':'cc3578',
+  '19. 창원점':    'cc7142',
+  '20. 성수점':    'cc4896'
+};
+const MASTER_PASSWORD = 'cclime1616';
+const _unlockedBranches = new Set();
+let _pwPendingBranch = null;
+
+function requestBranchAccess(branch) {
+  if (!branch || _unlockedBranches.has(branch)) {
+    _doBranchChange();
+    return;
+  }
+  _pwPendingBranch = branch;
+  document.getElementById('pw-branch-name').textContent = branch;
+  document.getElementById('pw-input').value = '';
+  document.getElementById('pw-error').textContent = '';
+  document.getElementById('pw-modal').classList.add('open');
+  setTimeout(() => document.getElementById('pw-input').focus(), 80);
+}
+function submitPw() {
+  const pw = document.getElementById('pw-input').value;
+  const branch = _pwPendingBranch;
+  const expected = BRANCH_PASSWORDS[branch];
+  if (pw === MASTER_PASSWORD || (expected && pw === expected)) {
+    _unlockedBranches.add(branch);
+    document.getElementById('pw-modal').classList.remove('open');
+    _doBranchChange();
+  } else {
+    document.getElementById('pw-error').textContent = '비밀번호가 올바르지 않습니다.';
+    document.getElementById('pw-input').value = '';
+    document.getElementById('pw-input').focus();
+  }
+}
+function cancelPw() {
+  document.getElementById('pw-modal').classList.remove('open');
+  document.getElementById('branch-sel').value = '';
+  _pwPendingBranch = null;
+  _doBranchChange();
+}
+function _doBranchChange() {
+  schData = loadLs(curY, curM);
+  renderBranchFilter();
+  buildTable();
+  attachFb(curY, curM);
+  updateNavBtns();
+}
+
 const SHEET_ID = '1lL4P4yEXhBl-PCk8ErBDQerSHDPJBDErBYBrNQG4gOQ';
 const GID      = '0';
 
@@ -1883,11 +1970,8 @@ function nextMonth() {
   curM++; if (curM>12){curM=1;curY++;} renderSchedule();
 }
 function onBranchChange() {
-  schData = loadLs(curY, curM);
-  renderBranchFilter();
-  buildTable();
-  attachFb(curY, curM);
-  updateNavBtns();
+  const branch = document.getElementById('branch-sel').value;
+  requestBranchAccess(branch);
 }
 function populateBranches() {
   const branches = [...new Set(employees.map(e=>e.branch))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
