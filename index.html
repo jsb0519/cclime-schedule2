@@ -619,7 +619,7 @@ function onEmployeeData(resp) {
         if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
       }
 
-      // work_type / belt 변경 감지 → 출퇴근 시간만 업데이트 (휴무·연차 유지)
+      // work_type / belt / exit_date 변경 감지 → Firebase 동기화
       let wtChanged = false;
       employees.forEach(emp => {
         const key = emp.branch + '||' + emp.name;
@@ -629,12 +629,15 @@ function onEmployeeData(resp) {
         const newWt = parseWorkType(emp.work_type || '');
         const newStoreHours = newWt.hours + 1;
         const newSlots = getSlots(newStoreHours);
-        const hoursChanged = sd.shift_hours !== newStoreHours;
-        const beltChanged  = sd.belt !== (emp.belt || '화이트');
+        const hoursChanged    = sd.shift_hours !== newStoreHours;
+        const beltChanged     = sd.belt !== (emp.belt || '화이트');
+        const exitDateChanged = (emp.exit_date || '') !== (sd.exit_date || '');
 
-        if (!hoursChanged && !beltChanged) return;
+        if (!hoursChanged && !beltChanged && !exitDateChanged) return;
 
         if (beltChanged) sd.belt = emp.belt || '화이트';
+
+        if (exitDateChanged) sd.exit_date = emp.exit_date || '';
 
         if (hoursChanged) {
           sd.shift_hours = newStoreHours;
