@@ -353,7 +353,7 @@ const MIN_YEAR = 2026, MIN_MONTH = 4; // 이동 가능 최소 월 (2026년 4월)
 function getMaxMonth() {
   const today = new Date();
   const branch = document.getElementById('branch-sel').value;
-  const ahead = branch ? 3 : 2; // 지점: +3개월, 전체: +2개월
+  const ahead = branch ? 2 : 1; // 지점: 당월+2개월, 전체: 당월+1개월
   const d = new Date(today.getFullYear(), today.getMonth() + ahead, 1);
   return [d.getFullYear(), d.getMonth() + 1];
 }
