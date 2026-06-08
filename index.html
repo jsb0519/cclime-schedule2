@@ -131,6 +131,10 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .xl-row label{font-size:13px;font-weight:600;color:#555;min-width:36px;flex-shrink:0}
 .xl-sel{padding:8px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;flex:1;outline:none;transition:.15s;background:#fff}
 .xl-sel:focus{border-color:#4F46E5}
+.xl-months{display:flex;flex-wrap:wrap;gap:6px;flex:1}
+.xl-mc{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1.5px solid #ddd;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;user-select:none;transition:.12s;color:#666;background:#fff}
+.xl-mc.on{border-color:#4F46E5;background:#EEF2FF;color:#4F46E5}
+.xl-mc input{display:none}
 /* ─ Password Modal ─ */
 .pw-input{padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;width:100%;outline:none;transition:.15s}
 .pw-input:focus{border-color:#4F46E5}
@@ -249,16 +253,16 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 
 <!-- ══ EXCEL DOWNLOAD MODAL ══ -->
 <div class="overlay" id="xl-modal" onclick="if(event.target===this)this.classList.remove('open')">
-  <div class="modal" style="max-width:360px;width:90vw">
+  <div class="modal" style="max-width:400px;width:90vw">
     <h3>⬇ 엑셀 다운로드</h3>
     <div style="margin-top:18px">
       <div class="xl-row">
         <label>지점</label>
         <select class="xl-sel" id="xl-branch"></select>
       </div>
-      <div class="xl-row">
-        <label>월</label>
-        <select class="xl-sel" id="xl-month"></select>
+      <div class="xl-row" style="align-items:flex-start">
+        <label style="padding-top:4px">월</label>
+        <div class="xl-months" id="xl-months"></div>
       </div>
     </div>
     <div id="xl-msg" style="font-size:12px;color:#888;min-height:16px;margin-bottom:4px;text-align:center"></div>
@@ -2107,52 +2111,92 @@ function openExcelModal() {
   const cur = document.getElementById('branch-sel').value;
   if (cur) branchSel.value = cur;
 
-  // 월 목록: 3개월 전 ~ 현재 +2개월
-  const monthSel = document.getElementById('xl-month');
+  // 월 칩: 3개월 전 ~ 현재 +2개월
   const today = new Date();
-  const opts = [];
+  const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const defaultKey = `${prev.getFullYear()}_${prev.getMonth() + 1}`;
+  const container = document.getElementById('xl-months');
+  const chips = [];
   for (let off = -3; off <= 2; off++) {
     const d = new Date(today.getFullYear(), today.getMonth() + off, 1);
     const y = d.getFullYear(), m = d.getMonth() + 1;
-    opts.push(`<option value="${y}_${m}">${y}년 ${m}월</option>`);
+    const key = `${y}_${m}`;
+    const isDefault = key === defaultKey;
+    chips.push(
+      `<label class="xl-mc${isDefault ? ' on' : ''}" data-key="${key}" onclick="xlToggleMonth(this)">` +
+      `<input type="checkbox" value="${key}"${isDefault ? ' checked' : ''}>${y}년 ${m}월</label>`
+    );
   }
-  monthSel.innerHTML = opts.join('');
-
-  // 기본값: 전월
-  const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  monthSel.value = `${prev.getFullYear()}_${prev.getMonth() + 1}`;
+  container.innerHTML = chips.join('');
 
   document.getElementById('xl-msg').textContent = '';
   document.getElementById('xl-modal').classList.add('open');
+}
+
+function xlToggleMonth(el) {
+  const cb = el.querySelector('input');
+  cb.checked = !cb.checked;
+  el.classList.toggle('on', cb.checked);
 }
 
 async function doDownloadExcel() {
   const btn = document.getElementById('xl-dl-btn');
   const msg = document.getElementById('xl-msg');
   btn.disabled = true;
-  btn.textContent = '불러오는 중...';
   msg.textContent = '';
 
-  try {
-    const branchFilter = document.getElementById('xl-branch').value;
-    const [dlY, dlM] = document.getElementById('xl-month').value.split('_').map(Number);
+  // 선택된 월 수집
+  const checked = [...document.querySelectorAll('#xl-months input:checked')];
+  if (!checked.length) {
+    msg.textContent = '월을 하나 이상 선택해 주세요.';
+    btn.disabled = false;
+    return;
+  }
 
-    // 현재 달이면 메모리 데이터, 다른 달이면 Firebase fetch
-    let dlSchData;
-    if (dlY === curY && dlM === curM) {
-      dlSchData = schData;
-    } else {
-      const fb = branchFilter ? await fbGetBranch(dlY, dlM, branchFilter) : await fbGetAll(dlY, dlM);
-      dlSchData = fb || {};
+  const branchFilter = document.getElementById('xl-branch').value;
+
+  try {
+    const wb = new ExcelJS.Workbook();
+    const months = checked.map(cb => cb.value.split('_').map(Number)); // [[y,m], ...]
+    // 오래된 월 순으로 정렬
+    months.sort((a,b) => a[0] !== b[0] ? a[0]-b[0] : a[1]-b[1]);
+
+    for (let i = 0; i < months.length; i++) {
+      const [dlY, dlM] = months[i];
+      btn.textContent = `불러오는 중 (${i+1}/${months.length})...`;
+
+      let dlSchData;
+      if (dlY === curY && dlM === curM) {
+        dlSchData = schData;
+      } else {
+        const fb = branchFilter ? await fbGetBranch(dlY, dlM, branchFilter) : await fbGetAll(dlY, dlM);
+        dlSchData = fb || {};
+      }
+
+      if (!Object.keys(dlSchData).length) {
+        msg.textContent = (msg.textContent ? msg.textContent + ' / ' : '') +
+          `${dlY}년 ${dlM}월 데이터 없음`;
+        continue;
+      }
+
+      await _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb);
     }
 
-    if (!Object.keys(dlSchData).length) {
-      msg.textContent = '해당 월의 근무표 데이터가 없습니다.';
+    if (!wb.worksheets.length) {
+      msg.textContent = (msg.textContent || '') + ' 다운로드할 데이터가 없습니다.';
       return;
     }
 
     document.getElementById('xl-modal').classList.remove('open');
-    await _execDownloadExcel(dlY, dlM, branchFilter, dlSchData);
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const label = branchFilter ? branchFilter : '전지점';
+    const monthLabel = months.map(([y,m]) => `${y}년${m}월`).join('_');
+    a.href = url; a.download = `끌리메_근무표_${label}_${monthLabel}.xlsx`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
   } catch(e) {
     msg.textContent = '오류: ' + e.message;
   } finally {
@@ -2161,7 +2205,7 @@ async function doDownloadExcel() {
   }
 }
 
-async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData) {
+async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb) {
   const days = new Date(dlY, dlM, 0).getDate();
   const holidays = getHolidays(dlY);
 
@@ -2186,7 +2230,6 @@ async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData) {
     return (BELT_ORDER.indexOf(a.belt)??8)-(BELT_ORDER.indexOf(b.belt)??8);
   });
 
-  const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(`${dlY}년${dlM}월`);
 
   // 열 너비
@@ -2334,15 +2377,6 @@ async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData) {
     });
   });
 
-  // 다운로드
-  const buf = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  const fileSuffix = branchFilter ? `_${branchFilter}` : '_전체지점';
-  a.download = `끌리메_근무표_${dlY}년${String(dlM).padStart(2,'0')}월${fileSuffix}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(a.href);
 }
 
 
