@@ -956,11 +956,13 @@ function attachFb(y, m) {
           ? { ...Object.fromEntries(Object.entries(schData).filter(([,v]) => v.branch !== branch)), ...fb }
           : fb;
         if (JSON.stringify(merged) !== JSON.stringify(schData)) {
-          schData = merged;
-          saveLs(y, m, schData);
-          if (!dirty && document.getElementById('view-schedule').classList.contains('active')) {
-            buildTable();
-            setStat('변경 내용 반영됨 · ' + new Date().toLocaleTimeString('ko-KR'));
+          if (!dirty && !_saving) {
+            schData = merged;
+            saveLs(y, m, schData);
+            if (document.getElementById('view-schedule').classList.contains('active')) {
+              buildTable();
+              setStat('변경 내용 반영됨 · ' + new Date().toLocaleTimeString('ko-KR'));
+            }
           }
         } else if (firstPoll) {
           setStat('근무표 로드 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
@@ -1595,9 +1597,8 @@ function scheduleAutoSave() {
 
 function flushSave() {
   saveLs(curY, curM, schData); // 로컬엔 항상 즉시 저장
-  dirty = false;
   const branch = document.getElementById('branch-sel').value;
-  if (!branch) return;
+  if (!branch) { dirty = false; return; }
   if (_saving) {
     _pendingSave = true; // 요청 중이면 완료 후 재저장 예약
     return;
@@ -1612,6 +1613,7 @@ function _doSave(branch, retryCount = 0) {
   fbSetBranch(curY, curM, branch, schData)
     .then(() => {
       _saving = false;
+      dirty = false; // Firebase 저장 완료 후에 dirty 해제
       setFbStatus(true, '🟢 저장 완료');
       setStat('자동 저장 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
       if (_pendingSave) { // 대기 중인 변경이 있으면 즉시 재저장
@@ -1626,6 +1628,7 @@ function _doSave(branch, retryCount = 0) {
         setFbStatus(null, `⚠️ 재시도 중... (${retryCount + 1}/${MAX_RETRIES})`);
         setTimeout(() => _doSave(branch, retryCount + 1), delay);
       } else {
+        dirty = false; // 최종 실패 시에도 dirty 해제
         setFbStatus(false, '🔴 저장 실패: ' + e.message);
         setStat('로컬 저장됨 · Firebase 오류');
       }
