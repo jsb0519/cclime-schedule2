@@ -1528,9 +1528,29 @@ function buildMonthSchedule(y, m) {
       available.filter(d => new Date(y, m-1, d).getDay() === 3).forEach(d => noOff.add(d));
       const candidates = available.filter(d => !noOff.has(d));
       // 지점 내 출근 인원이 많은 날부터 휴무 배정 → 출근 인원 평균화, 동점은 무작위
+      // 휴무 2일은 되도록 연속 배정 (nOff >= 2인 경우 연속 쌍 우선 탐색)
       const load = branchLoad[branch] || {};
-      [...candidates].sort((a, b) => (load[b] - load[a]) || (Math.random() - 0.5)).slice(0, Math.min(nOff, candidates.length))
-        .forEach(d => { offMap[key].add(d); if (branchLoad[branch]) branchLoad[branch][d]--; });
+      const sortedC = [...candidates].sort((a, b) => (load[b] - load[a]) || (Math.random() - 0.5));
+      let picked = [];
+      if (nOff >= 2 && candidates.length >= 2) {
+        const cSet = new Set(candidates);
+        const pairs = candidates
+          .filter(d => cSet.has(d + 1))
+          .map(d => [d, d + 1])
+          .sort((p1, p2) => ((load[p2[0]]||0) + (load[p2[1]]||0)) - ((load[p1[0]]||0) + (load[p1[1]]||0)) || (Math.random() - 0.5));
+        if (pairs.length > 0) {
+          picked = [...pairs[0]];
+          if (nOff > 2) {
+            const rem = sortedC.filter(d => !picked.includes(d));
+            picked = picked.concat(rem.slice(0, nOff - 2));
+          }
+        } else {
+          picked = sortedC.slice(0, Math.min(nOff, candidates.length));
+        }
+      } else {
+        picked = sortedC.slice(0, Math.min(nOff, candidates.length));
+      }
+      picked.forEach(d => { offMap[key].add(d); if (branchLoad[branch]) branchLoad[branch][d]--; });
     });
   });
 
