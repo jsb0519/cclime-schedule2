@@ -1,4 +1,4 @@
-import json, re, urllib.request, urllib.parse, calendar, sys
+import json, re, urllib.request, urllib.parse, calendar, sys, random
 from datetime import date
 
 SHEET_ID = '1kXGHbBBIAIXoNkXbEXzck0oKGF9RYQddhO279HociSo'
@@ -163,9 +163,25 @@ def build_month_schedule(y, m, employees):
             no_off |= {d for d in we['avail'] if date(y, m, d).weekday() == 2}
             cands = [d for d in we['avail'] if d not in no_off]
             # 지점 내 출근 인원이 많은 날부터 휴무 배정 → 출근 인원 평균화 (최우선)
+            # 휴무 2일은 되도록 연속 배정
             b = we['branch']
-            cands.sort(key=lambda d: -branch_load[b].get(d, 0))
-            for d in cands[:we['n_off']]:
+            n_off = we['n_off']
+            cands.sort(key=lambda d: (-branch_load[b].get(d, 0), random.random()))
+            picked = []
+            if n_off >= 2 and len(cands) >= 2:
+                c_set = set(cands)
+                pairs = [[d, d+1] for d in cands if (d+1) in c_set]
+                pairs.sort(key=lambda p: -(branch_load[b].get(p[0],0)+branch_load[b].get(p[1],0)))
+                if pairs:
+                    picked = list(pairs[0])
+                    if n_off > 2:
+                        rem = [d for d in cands if d not in picked]
+                        picked += rem[:n_off-2]
+                else:
+                    picked = cands[:min(n_off, len(cands))]
+            else:
+                picked = cands[:min(n_off, len(cands))]
+            for d in picked:
                 off_map[we['key']].add(d); branch_load[b][d]-=1
 
     belt_idx = lambda b: BELT_ORDER.index(b) if b in BELT_ORDER else 8
