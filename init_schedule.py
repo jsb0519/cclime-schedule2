@@ -165,7 +165,7 @@ def build_month_schedule(y, m, employees):
             n_off = we['n_off']
             cands.sort(key=lambda d: (-branch_load[b].get(d, 0), random.random()))
             picked = []
-            if n_off >= 1 and len(cands) >= 2:
+            if n_off >= 2 and len(cands) >= 2:
                 c_set = set(cands)
                 pairs = [[d, d+1] for d in cands if (d+1) in c_set]
                 pairs.sort(key=lambda p: -(branch_load[b].get(p[0],0)+branch_load[b].get(p[1],0)))

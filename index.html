@@ -1533,7 +1533,7 @@ function buildMonthSchedule(y, m) {
       const load = branchLoad[branch] || {};
       const sortedC = [...candidates].sort((a, b) => (load[b] - load[a]) || (Math.random() - 0.5));
       let picked = [];
-      if (nOff >= 1 && candidates.length >= 2) {
+      if (nOff >= 2 && candidates.length >= 2) {
         const cSet = new Set(candidates);
         const pairs = candidates
           .filter(d => cSet.has(d + 1))
