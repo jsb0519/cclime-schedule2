@@ -204,50 +204,9 @@ def build_month_schedule(employees, y, m):
 
     off_map = {ed['key']:set() for ed in emp_data}
 
-    # ── 주5일제: 고정 요일 쌍 배정 (월화/목금/금토/토일 중 하나를 한 달 내내 고정) ──
-    OFF_PAIRS = [(1,2),(4,5),(5,6),(6,0)]  # 월화, 목금, 금토, 토일
-    branch_day_off_cnt = {}
-    fixed_pair_map = {}
-    five_day_emps = sorted(
-        [ed for ed in emp_data if ed['days_per_week'] == 5],
-        key=lambda e: (int(re.match(r'(\d+)', e['emp']['branch']).group(1))
-                       if re.match(r'(\d+)', e['emp']['branch']) else 999,
-                       belt_idx(e['emp'].get('belt','화이트')))
-    )
-    for ed in five_day_emps:
-        br = ed['emp']['branch']
-        cnt = branch_day_off_cnt.setdefault(br, {})
-        best_pair, best_score = OFF_PAIRS[0], float('inf')
-        for pair in OFF_PAIRS:
-            score = cnt.get(pair[0], 0) + cnt.get(pair[1], 0)
-            if score < best_score:
-                best_score = score; best_pair = pair
-        fixed_pair_map[ed['key']] = best_pair
-        for d in best_pair:
-            cnt[d] = cnt.get(d, 0) + 1
-
-    # 주5일제: 고정 쌍으로 월 전체 휴무일 계산 (입사 첫 3일·퇴사일·수요일 제외)
-    for ed in emp_data:
-        if ed['days_per_week'] != 5: continue
-        pair = fixed_pair_map.get(ed['key'])
-        if not pair: continue
-        hire_protect = set()
-        if ed['is_hire_month']:
-            hire_protect.update([ed['start_day'], ed['start_day']+1, ed['start_day']+2])
-        for d in range(ed['start_day'], ed['end_day']+1):
-            if d == ed['end_day'] and d < days_in_month: continue
-            if d in hire_protect: continue
-            dow_js = (date(y, m, d).weekday() + 1) % 7
-            if dow_js == 3: continue  # 수요일
-            if dow_js in pair:
-                off_map[ed['key']].add(d)
-                branch_load[ed['emp']['branch']][d] -= 1
-
-    # 주4일제·주6일제·기타: 기존 주 단위 배정 (연속 쌍 우선)
     for w_days in weeks:
         w_emp = []
         for ed in emp_data:
-            if ed['days_per_week'] == 5 and fixed_pair_map.get(ed['key']): continue
             available = [d for d in w_days if ed['start_day']<=d<=ed['end_day']]
             if not available: continue
             off_per_week = 7 - ed['days_per_week']

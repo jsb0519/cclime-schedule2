@@ -1491,32 +1491,6 @@ function buildMonthSchedule(y, m) {
     empData.push({ key, emp, startDay, endDay, availDays, daysPerWeek, storeHours, slots, hireDow, isHireMonth });
   });
 
-  // ── 주5일제: 고정 요일 쌍 배정 (월화/목금/금토/토일 중 하나를 한 달 내내 고정) ──
-  const OFF_PAIRS = [[1,2],[4,5],[5,6],[6,0]]; // 월화, 목금, 금토, 토일
-  const bIdx = b => { const i = BELT_ORDER.indexOf(b); return i >= 0 ? i : 8; };
-  const branchDayOffCnt = {}; // 지점별 요일별 휴무 배정 인원 수 (부하 분산용)
-  const fixedPairMap = {};
-  [...empData]
-    .filter(ed => ed.daysPerWeek === 5)
-    .sort((a, b) => {
-      const ba = parseInt(a.emp.branch)||99, bb = parseInt(b.emp.branch)||99;
-      if (ba !== bb) return ba - bb;
-      return bIdx(a.emp.belt||'화이트') - bIdx(b.emp.belt||'화이트');
-    })
-    .forEach(({ key, emp }) => {
-      const br = emp.branch;
-      if (!branchDayOffCnt[br]) branchDayOffCnt[br] = {};
-      const cnt = branchDayOffCnt[br];
-      // 쌍의 두 요일에 이미 배정된 인원 합이 가장 적은 쌍 선택 → 요일 부하 분산
-      let bestPair = OFF_PAIRS[0], bestScore = Infinity;
-      OFF_PAIRS.forEach(pair => {
-        const score = (cnt[pair[0]]||0) + (cnt[pair[1]]||0);
-        if (score < bestScore) { bestScore = score; bestPair = pair; }
-      });
-      fixedPairMap[key] = bestPair;
-      bestPair.forEach(d => { cnt[d] = (cnt[d]||0) + 1; });
-    });
-
   // 월~일 기준 주 목록 구성
   const weeks = [];
   let wd = [];
@@ -1528,28 +1502,10 @@ function buildMonthSchedule(y, m) {
   const offMap = {};
   empData.forEach(({ key }) => offMap[key] = new Set());
 
-  // 주5일제: 고정 쌍으로 월 전체 휴무일 계산 (입사 첫 3일·퇴사일·수요일 제외)
-  empData.filter(ed => ed.daysPerWeek === 5).forEach(({ key, emp, startDay, endDay, isHireMonth }) => {
-    const pair = fixedPairMap[key];
-    if (!pair) return;
-    const hireProtect = new Set();
-    if (isHireMonth) [0,1,2].forEach(i => hireProtect.add(startDay+i));
-    for (let d = startDay; d <= endDay; d++) {
-      if (d === endDay && d < daysInMonth) continue;
-      if (hireProtect.has(d)) continue;
-      const dow = new Date(y, m-1, d).getDay();
-      if (dow === 3) continue;
-      if (dow === pair[0] || dow === pair[1]) {
-        offMap[key].add(d);
-        branchLoad[emp.branch][d]--;
-      }
-    }
-  });
-
-  // 주4일제·주6일제·기타: 기존 주 단위 배정 (연속 쌍 우선)
+  // ══ PHASE 1: 주 단위 휴무 배정 — 부하 균등화 우선, 연속 쌍 되도록 우선 ══
   weeks.forEach(wDays => {
     const wEmp = [];
-    empData.filter(ed => ed.daysPerWeek !== 5 || !fixedPairMap[ed.key]).forEach(({ key, emp, startDay, endDay, daysPerWeek, hireDow, isHireMonth }) => {
+    empData.forEach(({ key, emp, startDay, endDay, daysPerWeek, hireDow, isHireMonth }) => {
       const available = wDays.filter(d => d >= startDay && d <= endDay);
       if (!available.length) return;
       const offPerWeek = 7 - daysPerWeek;
@@ -1600,6 +1556,7 @@ function buildMonthSchedule(y, m) {
   });
 
   // ══ PHASE 2: 출근시간 배정 — 2일 로테이션 + 당일 스태거 ══
+  const bIdx = b => { const i = BELT_ORDER.indexOf(b); return i >= 0 ? i : 8; };
   const branchEmpList = {};
   empData.forEach(({ key, emp }) => {
     (branchEmpList[emp.branch] = branchEmpList[emp.branch] || []).push({ key, belt: emp.belt || '화이트' });
