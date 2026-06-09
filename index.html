@@ -1528,11 +1528,11 @@ function buildMonthSchedule(y, m) {
       available.filter(d => new Date(y, m-1, d).getDay() === 3).forEach(d => noOff.add(d));
       const candidates = available.filter(d => !noOff.has(d));
       // 지점 내 출근 인원이 많은 날부터 휴무 배정 → 출근 인원 평균화, 동점은 무작위
-      // 휴무 2일은 되도록 연속 배정 (nOff >= 2인 경우 연속 쌍 우선 탐색)
+      // 휴무 2일은 되도록 연속 배정 — nOff=1인 부분 주도 포함해서 연속 쌍 우선 탐색
       const load = branchLoad[branch] || {};
       const sortedC = [...candidates].sort((a, b) => (load[b] - load[a]) || (Math.random() - 0.5));
       let picked = [];
-      if (nOff >= 2 && candidates.length >= 2) {
+      if (nOff >= 1 && candidates.length >= 2) {
         const cSet = new Set(candidates);
         const pairs = candidates
           .filter(d => cSet.has(d + 1))

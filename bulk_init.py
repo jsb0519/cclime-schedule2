@@ -241,7 +241,7 @@ def build_month_schedule(employees, y, m):
             candidates.sort(key=lambda d: (-load.get(d,0), random.random()))
             # 휴무 2일은 되도록 연속 배정
             picked = []
-            if n_off >= 2 and len(candidates) >= 2:
+            if n_off >= 1 and len(candidates) >= 2:
                 c_set = set(candidates)
                 pairs = [[d, d+1] for d in candidates if (d+1) in c_set]
                 pairs.sort(key=lambda p: -(load.get(p[0],0)+load.get(p[1],0)))
