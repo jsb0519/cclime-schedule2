@@ -327,7 +327,7 @@ const BRANCH_PASSWORDS = {
   '19. 창원점':    'cc7142',
   '20. 성수점':    'cc4896'
 };
-const MASTER_PASSWORD = 'cc0000';
+const MASTER_PASSWORDS = ['cc0000', 'cclime1616'];
 const _unlockedBranches = new Set();
 let _pwPendingBranch = null;
 
@@ -347,7 +347,7 @@ function submitPw() {
   const pw = document.getElementById('pw-input').value;
   const branch = _pwPendingBranch;
   const expected = BRANCH_PASSWORDS[branch];
-  if (pw === MASTER_PASSWORD || (expected && pw === expected)) {
+  if (MASTER_PASSWORDS.includes(pw) || (expected && pw === expected)) {
     _unlockedBranches.add(branch);
     document.getElementById('pw-modal').classList.remove('open');
     _doBranchChange();
