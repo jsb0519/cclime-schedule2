@@ -238,10 +238,19 @@ def build_month_schedule(employees, y, m):
             load = branch_load.get(we['branch'], {})
             n_off = we['n_off']
             candidates.sort(key=lambda d: (-load.get(d,0), random.random()))
+            def max_run(new_days):
+                all_off = off_map[we['key']] | set(new_days)
+                mx = 0
+                for d in all_off:
+                    if (d-1) not in all_off:
+                        r = 0
+                        while (d+r) in all_off: r += 1
+                        if r > mx: mx = r
+                return mx
             picked = []
             if n_off >= 2 and len(candidates) >= 2:
                 c_set = set(candidates)
-                pairs = [[d, d+1] for d in candidates if (d+1) in c_set]
+                pairs = [[d, d+1] for d in candidates if (d+1) in c_set and max_run([d, d+1]) < 4]
                 pairs.sort(key=lambda p: -(load.get(p[0],0)+load.get(p[1],0)))
                 if pairs:
                     picked = list(pairs[0])
@@ -249,9 +258,11 @@ def build_month_schedule(employees, y, m):
                         rem = [d for d in candidates if d not in picked]
                         picked += rem[:n_off-2]
                 else:
-                    picked = candidates[:min(n_off, len(candidates))]
+                    safe = [d for d in candidates if max_run([d]) < 4]
+                    picked = (safe if safe else candidates)[:min(n_off, len(candidates))]
             else:
-                picked = candidates[:min(n_off, len(candidates))]
+                safe = [d for d in candidates if max_run([d]) < 4]
+                picked = (safe if safe else candidates)[:min(n_off, len(candidates))]
             for d in picked:
                 off_map[we['key']].add(d)
                 branch_load[we['branch']][d] -= 1

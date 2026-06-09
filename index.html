@@ -1532,12 +1532,22 @@ function buildMonthSchedule(y, m) {
       // 휴무 2일은 되도록 연속 배정 — nOff=1인 부분 주도 포함해서 연속 쌍 우선 탐색
       const load = branchLoad[branch] || {};
       const sortedC = [...candidates].sort((a, b) => (load[b] - load[a]) || (Math.random() - 0.5));
+      // 기존 휴무 + 새 날짜 추가 시 최대 연속 일수 계산 (4일 연속 방지용)
+      const maxRun = days => {
+        const all = new Set([...offMap[key], ...days]);
+        let mx = 0;
+        for (const d of all) {
+          if (!all.has(d - 1)) { let r = 0; while (all.has(d + r)) r++; if (r > mx) mx = r; }
+        }
+        return mx;
+      };
       let picked = [];
       if (nOff >= 2 && candidates.length >= 2) {
         const cSet = new Set(candidates);
         const pairs = candidates
           .filter(d => cSet.has(d + 1))
           .map(d => [d, d + 1])
+          .filter(pair => maxRun(pair) < 4)
           .sort((p1, p2) => ((load[p2[0]]||0) + (load[p2[1]]||0)) - ((load[p1[0]]||0) + (load[p1[1]]||0)) || (Math.random() - 0.5));
         if (pairs.length > 0) {
           picked = [...pairs[0]];
@@ -1546,10 +1556,12 @@ function buildMonthSchedule(y, m) {
             picked = picked.concat(rem.slice(0, nOff - 2));
           }
         } else {
-          picked = sortedC.slice(0, Math.min(nOff, candidates.length));
+          const safe = sortedC.filter(d => maxRun([d]) < 4);
+          picked = (safe.length ? safe : sortedC).slice(0, Math.min(nOff, candidates.length));
         }
       } else {
-        picked = sortedC.slice(0, Math.min(nOff, candidates.length));
+        const safe = sortedC.filter(d => maxRun([d]) < 4);
+        picked = (safe.length ? safe : sortedC).slice(0, Math.min(nOff, candidates.length));
       }
       picked.forEach(d => { offMap[key].add(d); if (branchLoad[branch]) branchLoad[branch][d]--; });
     });
