@@ -132,6 +132,29 @@ def build_month_schedule(y, m, employees):
                          'slots':slots,'hire_dow':js_dow,'is_hire_month':is_hire_month,
                          'branch':branch})
 
+    # ── 주5일제: 고정 요일 쌍 배정 (월화/목금/금토/토일 중 하나를 한 달 내내 고정) ──
+    OFF_PAIRS = [(1,2),(4,5),(5,6),(6,0)]  # 월화, 목금, 금토, 토일
+    b_idx = lambda b: BELT_ORDER.index(b) if b in BELT_ORDER else len(BELT_ORDER)
+    branch_day_off_cnt = {}
+    fixed_pair_map = {}
+    five_day_emps = sorted(
+        [ed for ed in emp_data if ed['dpw'] == 5],
+        key=lambda e: (int(re.match(r'(\d+)', e['branch']).group(1))
+                       if re.match(r'(\d+)', e['branch']) else 999,
+                       b_idx(e['emp'].get('belt','화이트')))
+    )
+    for ed in five_day_emps:
+        br = ed['branch']
+        cnt = branch_day_off_cnt.setdefault(br, {})
+        best_pair, best_score = OFF_PAIRS[0], float('inf')
+        for pair in OFF_PAIRS:
+            score = cnt.get(pair[0], 0) + cnt.get(pair[1], 0)
+            if score < best_score:
+                best_score = score; best_pair = pair
+        fixed_pair_map[ed['key']] = best_pair
+        for d in best_pair:
+            cnt[d] = cnt.get(d, 0) + 1
+
     # 주 목록 (일요일 기준)
     weeks, wd = [], []
     for d in range(1, dim+1):
@@ -139,9 +162,29 @@ def build_month_schedule(y, m, employees):
         if date(y,m,d).weekday()==6 or d==dim: weeks.append(list(wd)); wd=[]
 
     off_map = {e['key']:set() for e in emp_data}
+
+    # 주5일제: 고정 쌍으로 월 전체 휴무일 계산 (입사 첫 3일·퇴사일·수요일 제외)
+    for ed in emp_data:
+        if ed['dpw'] != 5: continue
+        pair = fixed_pair_map.get(ed['key'])
+        if not pair: continue
+        hire_protect = set()
+        if ed['is_hire_month']:
+            hire_protect.update([ed['start_day'], ed['start_day']+1, ed['start_day']+2])
+        for d in range(ed['start_day'], ed['end_day']+1):
+            if d == ed['end_day'] and d < dim: continue
+            if d in hire_protect: continue
+            dow_js = (date(y, m, d).weekday() + 1) % 7
+            if dow_js == 3: continue  # 수요일
+            if dow_js in pair:
+                off_map[ed['key']].add(d)
+                branch_load[ed['branch']][d] -= 1
+
+    # 주4일제·주6일제·기타: 기존 주 단위 배정 (연속 쌍 우선)
     for w_days in weeks:
         w_emp = []
         for ed in emp_data:
+            if ed['dpw'] == 5 and fixed_pair_map.get(ed['key']): continue
             avail = [d for d in w_days if ed['start_day']<=d<=ed['end_day']]
             if not avail: continue
             is_hire_week = ed['is_hire_month'] and w_days[0]<=ed['start_day']<=w_days[-1]
@@ -159,11 +202,8 @@ def build_month_schedule(y, m, employees):
             no_off = set()
             if we['ihm']: sd=we['sd']; no_off={sd,sd+1,sd+2}
             if we['ed']<dim: no_off.add(we['ed'])
-            # 매주 수요일은 전체 출근일 — 휴무 배정 불가
             no_off |= {d for d in we['avail'] if date(y, m, d).weekday() == 2}
             cands = [d for d in we['avail'] if d not in no_off]
-            # 지점 내 출근 인원이 많은 날부터 휴무 배정 → 출근 인원 평균화 (최우선)
-            # 휴무 2일은 되도록 연속 배정
             b = we['branch']
             n_off = we['n_off']
             cands.sort(key=lambda d: (-branch_load[b].get(d, 0), random.random()))
