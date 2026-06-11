@@ -151,10 +151,14 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 #site-lock .lock-btn{margin-top:14px;width:100%;padding:11px;background:#4F46E5;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s}
 #site-lock .lock-btn:hover{background:#4338CA}
 #site-lock .lock-err{font-size:12px;color:#e53935;min-height:18px;margin-top:8px}
+/* ─ Admin Toast ─ */
+#admin-toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:11px 22px;border-radius:8px;font-size:13px;font-weight:600;z-index:9998;display:none;box-shadow:0 4px 16px rgba(0,0,0,.35);white-space:nowrap}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
+
+<div id="admin-toast">🔒 해당 페이지는 관리자 전용 페이지입니다.</div>
 
 <!-- ══ SITE LOCK ══ -->
 <div id="site-lock">
@@ -337,22 +341,41 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 <script>
 /* ── 사이트 잠금 ── */
 (function(){
-  if(sessionStorage.getItem('site_auth')==='1'){
+  const a = sessionStorage.getItem('site_auth');
+  if(a === 'viewer' || a === 'master' || a === 'branch'){
     document.getElementById('site-lock').style.display='none';
   } else {
     setTimeout(()=>document.getElementById('site-pw-input').focus(),80);
   }
 })();
 function siteUnlock(){
-  const pw=document.getElementById('site-pw-input').value;
-  if(pw==='2010'){
-    sessionStorage.setItem('site_auth','1');
+  const pw = document.getElementById('site-pw-input').value;
+  // 마스터 비밀번호 체크는 BRANCH_PASSWORDS/MASTER_PASSWORDS 선언 후에 참조하므로
+  // 함수 호출 시점에는 이미 정의되어 있음
+  if(pw === '2010'){
+    sessionStorage.setItem('site_auth','viewer');
     document.getElementById('site-lock').style.display='none';
-  } else {
-    document.getElementById('site-pw-error').textContent='비밀번호가 올바르지 않습니다.';
-    document.getElementById('site-pw-input').value='';
-    document.getElementById('site-pw-input').focus();
+  } else if(typeof MASTER_PASSWORDS !== 'undefined' && MASTER_PASSWORDS.includes(pw)){
+    sessionStorage.setItem('site_auth','master');
+    document.getElementById('site-lock').style.display='none';
+  } else if(typeof BRANCH_PASSWORDS !== 'undefined'){
+    const matched = Object.entries(BRANCH_PASSWORDS).find(([,v])=>v===pw)?.[0];
+    if(matched){
+      sessionStorage.setItem('site_auth','branch');
+      sessionStorage.setItem('site_auth_branch', matched);
+      document.getElementById('site-lock').style.display='none';
+    } else {
+      document.getElementById('site-pw-error').textContent='비밀번호가 올바르지 않습니다.';
+      document.getElementById('site-pw-input').value='';
+      document.getElementById('site-pw-input').focus();
+    }
   }
+}
+function showAdminToast(){
+  const el = document.getElementById('admin-toast');
+  el.style.display='block';
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>{ el.style.display='none'; }, 3000);
 }
 
 /* ── 지점 비밀번호 ── */
@@ -387,12 +410,24 @@ function requestBranchAccess(branch) {
     _doBranchChange();
     return;
   }
-  _pwPendingBranch = branch;
-  document.getElementById('pw-branch-name').textContent = branch;
-  document.getElementById('pw-input').value = '';
-  document.getElementById('pw-error').textContent = '';
-  document.getElementById('pw-modal').classList.add('open');
-  setTimeout(() => document.getElementById('pw-input').focus(), 80);
+  const siteAuth = sessionStorage.getItem('site_auth');
+  // 마스터 비밀번호로 접속 → 모든 지점 자동 잠금해제
+  if (siteAuth === 'master') {
+    _unlockedBranches.add(branch);
+    _doBranchChange();
+    return;
+  }
+  // 지점 비밀번호로 접속 → 해당 지점만 자동 잠금해제
+  if (siteAuth === 'branch' && sessionStorage.getItem('site_auth_branch') === branch) {
+    _unlockedBranches.add(branch);
+    _doBranchChange();
+    return;
+  }
+  // 일반(2010) 접속 또는 다른 지점 비밀번호 → 관리자 전용 안내
+  showAdminToast();
+  document.getElementById('branch-sel').value = '';
+  _pwPendingBranch = null;
+  _doBranchChange();
 }
 function submitPw() {
   const pw = document.getElementById('pw-input').value;
