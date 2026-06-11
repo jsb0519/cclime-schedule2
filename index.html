@@ -2034,10 +2034,13 @@ function buildTable() {
     const prevD = new Date(cY, cM - 2, 1);
     const pY = prevD.getFullYear(), pM = prevD.getMonth() + 1;
     const rcCur = calcRegularWorkerCount(cY, cM, branch, schData);
+    if (!window._rwGen) window._rwGen = 0;
+    const myGen = ++window._rwGen;
     const badge = v => v >= 5
       ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#D1FAE5;color:#065F46;font-size:10px;font-weight:700">5인 이상 ✓</span>`
       : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280;font-size:10px;font-weight:700">5인 미만</span>`;
     const renderRW = (rcPrev, prevLabel) => {
+      if (window._rwGen !== myGen) return; // buildTable이 재호출됐으면 무시
       rwEl.style.display = 'block';
       rwEl.innerHTML = `
         <div style="background:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 2px 8px rgba(0,0,0,.08);border-left:4px solid #4F46E5">
