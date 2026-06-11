@@ -1930,7 +1930,7 @@ function buildTable() {
 
   /* ── 지점 상시 근로자수 ── */
   const rwEl = document.getElementById('sch-regular-worker');
-  if (!branch) {
+  if (!branch || !_unlockedBranches.has(branch)) {
     rwEl.style.display = 'none';
   } else {
     const now = new Date();
