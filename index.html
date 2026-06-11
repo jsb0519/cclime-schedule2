@@ -1207,9 +1207,9 @@ function calcStats() {
 }
 
 /* ── 상시 근로자수 계산 (근로기준법 시행령: 연인원 ÷ 가동일수)
-   연인원 = 매일의 재직 근로자 수 합산 (고용관계 기준, 휴무·연차 포함)
-   고용노동부 해석: 소속 근로자는 출근 여부 무관하게 연인원에 포함 ── */
-function calcRegularWorkerCount(y, m, branch = null) {
+   주7일 운영 사업장 기준: 연인원 = 실제 출근한 날의 합산 (휴무·연차·대휴 제외)
+   scheduleData: {branch||name: {off_days, day_types}} 형식 ── */
+function calcRegularWorkerCount(y, m, branch = null, scheduleData = null) {
   const daysInMonth = new Date(y, m, 0).getDate();
   const seen = new Set();
   const pool = [];
@@ -1218,14 +1218,23 @@ function calcRegularWorkerCount(y, m, branch = null) {
     const k = `${e.branch}||${e.name}||${e.hire_date||''}`;
     if (!seen.has(k)) { seen.add(k); pool.push(e); }
   });
+  const OFF_TYPES = new Set(['휴무', '연차', '대휴']);
+  const HALF_TYPES = new Set(['오전반차', '오후반차']);
   let total = 0;
   for (let d = 1; d <= daysInMonth; d++) {
     const ds = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    total += pool.filter(e => {
-      if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > ds) return false;
-      if (e.exit_date && e.exit_date.length >= 10 && e.exit_date <= ds) return false;
-      return true;
-    }).length;
+    for (const e of pool) {
+      if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > ds) continue;
+      if (e.exit_date && e.exit_date.length >= 10 && e.exit_date <= ds) continue;
+      const sd = scheduleData?.[`${e.branch}||${e.name}`];
+      if (sd) {
+        if ((sd.off_days || []).includes(d)) continue;
+        const dtype = sd.day_types?.[String(d)];
+        if (OFF_TYPES.has(dtype)) continue;
+        if (HALF_TYPES.has(dtype)) { total += 0.5; continue; }
+      }
+      total += 1;
+    }
   }
   return Math.round(total / daysInMonth * 10) / 10;
 }
@@ -1989,7 +1998,7 @@ function buildTable() {
     const cY = now.getFullYear(), cM = now.getMonth() + 1;
     const prevD = new Date(cY, cM - 2, 1);
     const pY = prevD.getFullYear(), pM = prevD.getMonth() + 1;
-    const rcCur = calcRegularWorkerCount(cY, cM, branch);
+    const rcCur = calcRegularWorkerCount(cY, cM, branch, schData);
     const badge = v => v >= 5
       ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#D1FAE5;color:#065F46;font-size:10px;font-weight:700">5인 이상 ✓</span>`
       : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280;font-size:10px;font-weight:700">5인 미만</span>`;
@@ -2032,9 +2041,15 @@ function buildTable() {
           </div>
         </div>`;
     };
-    const rcPrev = calcRegularWorkerCount(pY, pM, branch);
     rwEl.style.display = 'block';
-    renderRW(rcPrev, '');
+    rwEl.innerHTML = `<div style="padding:12px;color:#aaa;font-size:12px">계산 중...</div>`;
+    fbGetAll(pY, pM).then(prevData => {
+      const rcPrev = calcRegularWorkerCount(pY, pM, branch, prevData || null);
+      const note = prevData ? '' : ' <span style="font-size:10px;color:#f59e0b">(근무표 없음·재직 기준)</span>';
+      renderRW(rcPrev, note);
+    }).catch(() => {
+      renderRW(calcRegularWorkerCount(pY, pM, branch), ' <span style="font-size:10px;color:#f59e0b">(재직 기준 추정)</span>');
+    });
   }
 }
 
