@@ -166,7 +166,6 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
   </div>
   <div class="summary" id="dash-summary"></div>
   <div class="stat-row" id="dash-stats"></div>
-  <div id="dash-regular-worker" style="margin-bottom:12px"></div>
   <div class="tbl-wrap" id="dash-wrap"><div style="text-align:center;padding:40px;color:#aaa">⏳ 로딩 중...</div></div>
 </div>
 
@@ -185,6 +184,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 <span id="edit-hint" style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
   </div>
   <div class="branch-filter" id="branch-filter"></div>
+  <div id="sch-regular-worker" style="margin-bottom:12px;display:none"></div>
   <div class="sch-outer">
     <table id="sch-table">
       <thead id="sch-head"></thead>
@@ -1157,11 +1157,12 @@ function calcStats() {
 }
 
 /* ── 상시 근로자수 계산 (근로기준법: 연인원 ÷ 해당 기간 일수) ── */
-function calcRegularWorkerCount(y, m) {
+function calcRegularWorkerCount(y, m, branch = null) {
   const daysInMonth = new Date(y, m, 0).getDate();
   const seen = new Set();
   const pool = [];
   [...employees, ...resignedEmployees].forEach(e => {
+    if (branch && e.branch !== branch) return;
     const k = `${e.branch}||${e.name}||${e.hire_date||''}`;
     if (!seen.has(k)) { seen.add(k); pool.push(e); }
   });
@@ -1418,49 +1419,6 @@ function renderDashboard() {
       <div class="sval" style="font-size:18px">${tenureStr}</div>
       <div class="ssub">재직자+최근1년 퇴사자 기준</div>
     </div>`;
-
-  /* ── 상시 근로자수 ── */
-  {
-    const now = new Date();
-    const cY = now.getFullYear(), cM = now.getMonth() + 1;
-    const prevD = new Date(cY, cM - 2, 1);
-    const pY = prevD.getFullYear(), pM = prevD.getMonth() + 1;
-    const rcCur  = calcRegularWorkerCount(cY, cM);
-    const rcPrev = calcRegularWorkerCount(pY, pM);
-    const badge = v => v >= 5
-      ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#D1FAE5;color:#065F46;font-size:10px;font-weight:700">5인 이상 ✓</span>`
-      : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280;font-size:10px;font-weight:700">5인 미만</span>`;
-    document.getElementById('dash-regular-worker').innerHTML = `
-      <div style="background:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 2px 8px rgba(0,0,0,.08);border-left:4px solid #4F46E5">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-          <span style="font-size:13px;font-weight:800;color:#1a1a2e">⚖️ 상시 근로자수</span>
-          <span style="font-size:11px;color:#888">연인원 ÷ 해당 월 일수 (근로기준법 시행령 기준)</span>
-        </div>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
-          <div style="flex:1;min-width:130px">
-            <div style="font-size:11px;color:#888;margin-bottom:4px">${pY}년 ${pM}월 (확정)</div>
-            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-              <span style="font-size:28px;font-weight:800;color:${rcPrev>=5?'#059669':'#6B7280'}">${rcPrev.toFixed(1)}<span style="font-size:14px;font-weight:600">명</span></span>
-              ${badge(rcPrev)}
-            </div>
-          </div>
-          <div style="width:1px;height:48px;background:#e8e8e8;flex-shrink:0"></div>
-          <div style="flex:1;min-width:130px">
-            <div style="font-size:11px;color:#888;margin-bottom:4px">${cY}년 ${cM}월 (진행중)</div>
-            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-              <span style="font-size:28px;font-weight:800;color:${rcCur>=5?'#059669':'#6B7280'}">${rcCur.toFixed(1)}<span style="font-size:14px;font-weight:600">명</span></span>
-              ${badge(rcCur)}
-            </div>
-            <div style="font-size:10px;color:#aaa;margin-top:2px">오늘까지 연인원 기준</div>
-          </div>
-          <div style="flex:2;min-width:200px;background:#F8F9FF;border-radius:8px;padding:8px 12px;font-size:11px;color:#555;line-height:1.8">
-            <strong style="color:#3730A3">5인 이상 사업장 적용 법률</strong><br>
-            연차유급휴가 · 해고예고 · 부당해고 구제신청<br>
-            연장·야간·휴일근로 가산수당 · 취업규칙 작성 의무
-          </div>
-        </div>
-      </div>`;
-  }
 
   const beltTh = BELT_ORDER.map(b => {
     const s = BS[b]||{bg:'#555',fg:'#fff'};
@@ -1969,6 +1927,53 @@ function buildTable() {
     </tr>`;
   });
   document.getElementById('sch-body').innerHTML = body;
+
+  /* ── 지점 상시 근로자수 ── */
+  const rwEl = document.getElementById('sch-regular-worker');
+  if (!branch) {
+    rwEl.style.display = 'none';
+  } else {
+    const now = new Date();
+    const cY = now.getFullYear(), cM = now.getMonth() + 1;
+    const prevD = new Date(cY, cM - 2, 1);
+    const pY = prevD.getFullYear(), pM = prevD.getMonth() + 1;
+    const rcCur  = calcRegularWorkerCount(cY, cM, branch);
+    const rcPrev = calcRegularWorkerCount(pY, pM, branch);
+    const badge = v => v >= 5
+      ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#D1FAE5;color:#065F46;font-size:10px;font-weight:700">5인 이상 ✓</span>`
+      : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280;font-size:10px;font-weight:700">5인 미만</span>`;
+    rwEl.style.display = 'block';
+    rwEl.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 2px 8px rgba(0,0,0,.08);border-left:4px solid #4F46E5">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:13px;font-weight:800;color:#1a1a2e">⚖️ 상시 근로자수</span>
+          <span style="font-size:11px;color:#888">연인원 ÷ 해당 월 일수 (근로기준법 시행령 기준)</span>
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <div style="flex:1;min-width:130px">
+            <div style="font-size:11px;color:#888;margin-bottom:4px">${pY}년 ${pM}월 (확정)</div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <span style="font-size:28px;font-weight:800;color:${rcPrev>=5?'#059669':'#6B7280'}">${rcPrev.toFixed(1)}<span style="font-size:14px;font-weight:600">명</span></span>
+              ${badge(rcPrev)}
+            </div>
+          </div>
+          <div style="width:1px;height:48px;background:#e8e8e8;flex-shrink:0"></div>
+          <div style="flex:1;min-width:130px">
+            <div style="font-size:11px;color:#888;margin-bottom:4px">${cY}년 ${cM}월 (진행중)</div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <span style="font-size:28px;font-weight:800;color:${rcCur>=5?'#059669':'#6B7280'}">${rcCur.toFixed(1)}<span style="font-size:14px;font-weight:600">명</span></span>
+              ${badge(rcCur)}
+            </div>
+            <div style="font-size:10px;color:#aaa;margin-top:2px">오늘까지 연인원 기준</div>
+          </div>
+          <div style="flex:2;min-width:200px;background:#F8F9FF;border-radius:8px;padding:8px 12px;font-size:11px;color:#555;line-height:1.8">
+            <strong style="color:#3730A3">5인 이상 사업장 적용 법률</strong><br>
+            연차유급휴가 · 해고예고 · 부당해고 구제신청<br>
+            연장·야간·휴일근로 가산수당 · 취업규칙 작성 의무
+          </div>
+        </div>
+      </div>`;
+  }
 }
 
 /* ── Day Status Modal ── */
