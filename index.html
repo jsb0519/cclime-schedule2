@@ -2001,11 +2001,9 @@ function buildTable() {
     const pY = prevD.getFullYear(), pM = prevD.getMonth() + 1;
     // 현재월: schData(실제 근무표) 사용 / 전월: Firebase 비동기 조회
     const rcCur = calcRegularWorkerCount(cY, cM, branch, schData);
-    const renderRW = (rcPrev, prevLabel) => {
     const badge = v => v >= 5
       ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#D1FAE5;color:#065F46;font-size:10px;font-weight:700">5인 이상 ✓</span>`
       : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280;font-size:10px;font-weight:700">5인 미만</span>`;
-    };
     const renderRW = (rcPrev, prevLabel) => {
       rwEl.style.display = 'block';
       rwEl.innerHTML = `
