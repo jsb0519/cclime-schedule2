@@ -2082,11 +2082,11 @@ function buildTable() {
     rwEl.style.display = 'block';
     rwEl.innerHTML = `<div style="padding:12px;color:#aaa;font-size:12px">계산 중...</div>`;
     fbGetAll(pY, pM).then(prevData => {
-      const rcPrev = calcRegularWorkerCount(pY, pM, branch, prevData || null);
-      const note = prevData ? '' : ' <span style="font-size:10px;color:#f59e0b">(근무표 없음·재직 기준)</span>';
+      const rcPrev = prevData ? calcRegularWorkerCount(pY, pM, branch, prevData) : 0;
+      const note = prevData ? '' : ' <span style="font-size:10px;color:#9CA3AF">(근무표 없음)</span>';
       renderRW(rcPrev, note);
     }).catch(() => {
-      renderRW(calcRegularWorkerCount(pY, pM, branch), ' <span style="font-size:10px;color:#f59e0b">(재직 기준 추정)</span>');
+      renderRW(0, ' <span style="font-size:10px;color:#9CA3AF">(근무표 없음)</span>');
     });
   }
 }
