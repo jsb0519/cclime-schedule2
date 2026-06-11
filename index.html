@@ -284,11 +284,18 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
         <label>지점</label>
         <select class="xl-sel" id="xl-branch"></select>
       </div>
-      <div class="xl-row" style="align-items:flex-start">
+      <div class="xl-row" id="xl-month-row" style="align-items:flex-start">
         <label style="padding-top:4px">월</label>
         <div class="xl-months" id="xl-months"></div>
       </div>
+      <div class="xl-row">
+        <label>버전</label>
+        <select class="xl-sel" id="xl-version" onchange="xlVerChange()">
+          <option value="current">현재 (최신)</option>
+        </select>
+      </div>
     </div>
+    <div id="xl-snap-info" style="display:none;font-size:11px;color:#6B7280;text-align:center;margin-top:-8px;margin-bottom:8px;background:#F3F4F6;border-radius:6px;padding:5px 10px"></div>
     <div id="xl-msg" style="font-size:12px;color:#888;min-height:16px;margin-bottom:4px;text-align:center"></div>
     <div class="modal-btns">
       <button class="btn-cancel" onclick="document.getElementById('xl-modal').classList.remove('open')">취소</button>
@@ -2300,13 +2307,77 @@ function openExcelModal() {
   container.innerHTML = chips.join('');
 
   document.getElementById('xl-msg').textContent = '';
+  document.getElementById('xl-snap-info').style.display = 'none';
+  document.getElementById('xl-month-row').style.display = '';
+
+  // 버전 셀렉터 초기화 후 스냅샷 목록 비동기 로드
+  const verSel = document.getElementById('xl-version');
+  verSel.innerHTML = '<option value="current">현재 (최신)</option><option disabled>── 저장된 스냅샷 ──</option>';
+  fetchTimed(`${FB_BASE}/snapshots.json?shallow=true`, {}, 6000)
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data || typeof data !== 'object') return;
+      Object.keys(data).sort().reverse().forEach(d => {
+        const [sy, sm] = d.split('-');
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = `${d}  (${sy}년 ${parseInt(sm)}월)`;
+        verSel.appendChild(opt);
+      });
+    }).catch(() => {});
+
   document.getElementById('xl-modal').classList.add('open');
+}
+
+function xlVerChange() {
+  const ver = document.getElementById('xl-version').value;
+  const isCurrent = ver === 'current';
+  document.getElementById('xl-month-row').style.display = isCurrent ? '' : 'none';
+  const info = document.getElementById('xl-snap-info');
+  if (isCurrent) {
+    info.style.display = 'none';
+  } else {
+    const [sy, sm, sd] = ver.split('-');
+    info.style.display = '';
+    info.textContent = `📅 ${sy}년 ${parseInt(sm)}월 ${parseInt(sd)}일 자정 저장본`;
+  }
 }
 
 function xlToggleMonth(el) {
   const cb = el.querySelector('input');
   cb.checked = !cb.checked;
   el.classList.toggle('on', cb.checked);
+}
+
+/* Firebase 스냅샷 읽기 → fbGetAll 과 동일한 flat 포맷 반환 */
+async function fbGetSnapshot(snapDate) {
+  try {
+    const r = await fetchTimed(`${FB_BASE}/snapshots/${snapDate}.json`, {}, 10000);
+    if (!r.ok) return null;
+    const raw = await r.json();
+    if (!raw || typeof raw !== 'object') return null;
+    const result = {};
+    for (const val of Object.values(raw)) {
+      if (!val || typeof val !== 'object') continue;
+      for (const v of Object.values(val)) {
+        const e = normEntry(v);
+        const key = e && e.branch && e.name ? e.branch + '||' + e.name : null;
+        if (key && !(key in result)) result[key] = e;
+      }
+    }
+    return Object.keys(result).length ? result : null;
+  } catch(e) { return null; }
+}
+
+/* 스냅샷 데이터에서 employees 배열 재구성 */
+function empsFromSchData(schData) {
+  const seen = new Set();
+  return Object.values(schData)
+    .filter(e => e && e.name && e.branch)
+    .filter(e => { const k = e.branch+'||'+e.name; if(seen.has(k)) return false; seen.add(k); return true; })
+    .map(e => ({ branch: e.branch, name: e.name, belt: e.belt||'화이트',
+                 hire_date: e.hire_date||'', exit_date: e.exit_date||'',
+                 work_type: e.work_type||'' }));
 }
 
 async function doDownloadExcel() {
@@ -2324,32 +2395,51 @@ async function doDownloadExcel() {
   }
 
   const branchFilter = document.getElementById('xl-branch').value;
+  const version = document.getElementById('xl-version').value;
 
   try {
     const wb = new ExcelJS.Workbook();
-    const months = checked.map(cb => cb.value.split('_').map(Number)); // [[y,m], ...]
-    // 오래된 월 순으로 정렬
-    months.sort((a,b) => a[0] !== b[0] ? a[0]-b[0] : a[1]-b[1]);
 
-    for (let i = 0; i < months.length; i++) {
-      const [dlY, dlM] = months[i];
-      btn.textContent = `불러오는 중 (${i+1}/${months.length})...`;
-
-      let dlSchData;
-      if (dlY === curY && dlM === curM) {
-        dlSchData = schData;
-      } else {
-        const fb = branchFilter ? await fbGetBranch(dlY, dlM, branchFilter) : await fbGetAll(dlY, dlM);
-        dlSchData = fb || {};
+    if (version !== 'current') {
+      // ── 스냅샷 버전 ──
+      btn.textContent = '스냅샷 불러오는 중...';
+      const [sy, sm] = version.split('-').map(Number);
+      const snap = await fbGetSnapshot(version);
+      if (!snap || !Object.keys(snap).length) {
+        msg.textContent = `${version} 스냅샷 데이터 없음`;
+        return;
       }
-
-      if (!Object.keys(dlSchData).length) {
-        msg.textContent = (msg.textContent ? msg.textContent + ' / ' : '') +
-          `${dlY}년 ${dlM}월 데이터 없음`;
-        continue;
+      let dlSchData = snap;
+      if (branchFilter) {
+        dlSchData = Object.fromEntries(Object.entries(snap).filter(([,v]) => v.branch === branchFilter));
       }
+      const empList = empsFromSchData(snap);
+      await _execDownloadExcel(sy, sm, branchFilter, dlSchData, wb, empList, version);
+    } else {
+      // ── 현재 버전 ──
+      const months = checked.map(cb => cb.value.split('_').map(Number));
+      months.sort((a,b) => a[0] !== b[0] ? a[0]-b[0] : a[1]-b[1]);
 
-      await _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb);
+      for (let i = 0; i < months.length; i++) {
+        const [dlY, dlM] = months[i];
+        btn.textContent = `불러오는 중 (${i+1}/${months.length})...`;
+
+        let dlSchData;
+        if (dlY === curY && dlM === curM) {
+          dlSchData = schData;
+        } else {
+          const fb = branchFilter ? await fbGetBranch(dlY, dlM, branchFilter) : await fbGetAll(dlY, dlM);
+          dlSchData = fb || {};
+        }
+
+        if (!Object.keys(dlSchData).length) {
+          msg.textContent = (msg.textContent ? msg.textContent + ' / ' : '') +
+            `${dlY}년 ${dlM}월 데이터 없음`;
+          continue;
+        }
+
+        await _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb);
+      }
     }
 
     if (!wb.worksheets.length) {
@@ -2364,7 +2454,9 @@ async function doDownloadExcel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const label = branchFilter ? branchFilter : '전지점';
-    const monthLabel = months.map(([y,m]) => `${y}년${m}월`).join('_');
+    const monthLabel = version !== 'current'
+      ? (() => { const [sy,sm]=version.split('-'); return `${sy}년${parseInt(sm)}월_v${version}`; })()
+      : months.map(([y,m]) => `${y}년${m}월`).join('_');
     a.href = url; a.download = `끌리메_근무표_${label}_${monthLabel}.xlsx`; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 3000);
   } catch(e) {
@@ -2375,11 +2467,11 @@ async function doDownloadExcel() {
   }
 }
 
-async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb) {
+async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb, empList = null, snapLabel = null) {
   const days = new Date(dlY, dlM, 0).getDate();
   const holidays = getHolidays(dlY);
 
-  let emps = employees.slice();
+  let emps = (empList || employees).slice();
   // 지점 필터
   if (branchFilter) emps = emps.filter(e => e.branch === branchFilter);
   // 해당 월 재직자 필터
@@ -2411,7 +2503,8 @@ async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb) {
   ws.getColumn(days + 5).width = 7;  // 총 휴무
 
   // 제목 행
-  const titleLabel = branchFilter ? `끌리메 ${branchFilter} 근무표 ${dlY}년 ${dlM}월` : `끌리메 근무표 ${dlY}년 ${dlM}월`;
+  const snapSuffix = snapLabel ? ` (저장: ${snapLabel})` : '';
+  const titleLabel = (branchFilter ? `끌리메 ${branchFilter} 근무표 ${dlY}년 ${dlM}월` : `끌리메 근무표 ${dlY}년 ${dlM}월`) + snapSuffix;
   const titleRow = ws.addRow([titleLabel]);
   ws.mergeCells(1, 1, 1, days + 5);
   Object.assign(titleRow.getCell(1), {
