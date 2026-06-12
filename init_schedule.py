@@ -94,7 +94,7 @@ def get_slots(store_hours):
     r = [f'{h:02d}:00' for h in range(10, 21-store_hours+1)]
     return r if r else ['10:00']
 
-def build_month_schedule(y, m, employees):
+def build_month_schedule(y, m, employees, sched_start_day=1):
     dim = calendar.monthrange(y, m)[1]
     ROT = 2
     FW5 = {0:0,1:2,2:2,3:1,4:0,5:0,6:0}
@@ -156,9 +156,13 @@ def build_month_schedule(y, m, employees):
                 n_off = min(tbl.get(ed['hire_dow'],0), len(avail))
             else:
                 n_off = round(len(avail)*(7-ed['dpw'])/7)
+            # sched_start_day 이전 주는 휴무 미배정 (수동 관리 기간)
+            if w_days[-1] < sched_start_day:
+                n_off = 0
+            eff_sd = max(ed['start_day'], sched_start_day)
             w_emp.append({'key':ed['key'],'avail':avail,'n_off':n_off,
-                          'sd':ed['start_day'],'ed':ed['end_day'],'ihm':ed['is_hire_month'],
-                          'branch':ed['branch']})
+                          'sd':ed['start_day'],'eff_sd':eff_sd,'ed':ed['end_day'],
+                          'ihm':ed['is_hire_month'],'branch':ed['branch']})
         w_emp.sort(key=lambda x: -x['n_off'])
         for we in w_emp:
             if not we['n_off']: continue
@@ -181,7 +185,7 @@ def build_month_schedule(y, m, employees):
             def max_work_run(new_days):
                 all_off = off_map[we['key']] | set(new_days)
                 check_to = w_days[-1]
-                mx, d = 0, we['sd']
+                mx, d = 0, we['eff_sd']
                 while d <= check_to:
                     if d not in all_off:
                         r = 0

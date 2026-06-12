@@ -465,7 +465,7 @@ const BELT_HOURS = {골드:10,실버:10,블랙:10,레드:9,블루:9,퍼플:8,옐
 const DEFAULT_START = '10:00';
 const DAY_TYPES_CYCLE = ['휴무','연차','오전반차','오후반차','대휴'];
 const TYPE_CLS = {'휴무':'d-off','연차':'d-annual','오전반차':'d-amhalf','오후반차':'d-pmhalf','대휴':'d-comp'};
-const MIN_YEAR = 2026, MIN_MONTH = 4; // 이동 가능 최소 월 (2026년 4월)
+const MIN_YEAR = 2026, MIN_MONTH = 7; // 이동 가능 최소 월 (2026년 7월)
 
 function getMaxMonth() {
   const today = new Date();
@@ -607,8 +607,26 @@ let employees = [];
 let schData = {};
 let _hiredList = [], _exitedList = [], _upcomingHireList = [], _upcomingExitList = [];
 let _checkedBranches = null; // null = not yet initialized (show all)
+// MIN_MONTH 이전 달 localStorage 캐시 일괄 삭제
+(function clearOldCache() {
+  const toRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith('cclime_sch_')) continue;
+    const parts = k.replace('cclime_sch_', '').split('_');
+    if (parts.length !== 2) continue;
+    const y = parseInt(parts[0]), m = parseInt(parts[1]);
+    if (y < MIN_YEAR || (y === MIN_YEAR && m < MIN_MONTH)) toRemove.push(k);
+  }
+  toRemove.forEach(k => localStorage.removeItem(k));
+})();
+
 let curY = new Date().getFullYear();
 let curM = new Date().getMonth() + 1;
+// 현재 월이 최소 월보다 이전이면 최소 월로 시작
+if (curY < MIN_YEAR || (curY === MIN_YEAR && curM < MIN_MONTH)) {
+  curY = MIN_YEAR; curM = MIN_MONTH;
+}
 let dirty = false;
 let editKey = null;
 let dmKey = null, dmDay = null, dmType = null;
