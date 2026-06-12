@@ -167,11 +167,6 @@ def build_month_schedule(y, m, employees):
             b = we['branch']
             n_off = we['n_off']
             min_workers = max(1, round(branch_size.get(b, 1) * 0.6))
-            cands = [d for d in we['avail'] if d not in no_off
-                     and branch_load[b].get(d, 0) - 1 >= min_workers]
-            if not cands:
-                cands = [d for d in we['avail'] if d not in no_off]
-            cands.sort(key=lambda d: (-branch_load[b].get(d, 0), random.random()))
             def max_run(new_days):
                 all_off = off_map[we['key']] | set(new_days)
                 mx = 0
@@ -194,43 +189,37 @@ def build_month_schedule(y, m, employees):
                     else:
                         d += 1
                 return mx
-            # 연속근무 6일 제한을 만족하는 날이 cands에 없으면 min_workers 완화
-            all_avail = [d for d in we['avail'] if d not in no_off]
-            if all_avail and not any(max_work_run([d]) <= 6 for d in cands):
-                cands = all_avail
-                cands.sort(key=lambda d: (-branch_load[b].get(d, 0), random.random()))
             picked = []
-            if n_off >= 2 and len(cands) >= 2:
-                c_set = set(cands)
-                pairs = [[d, d+1] for d in cands if (d+1) in c_set
+            # 연속 2일 휴무 우선 시도 (min_workers + 모든 제약 충족 시만)
+            if n_off >= 2:
+                day_cands = [d for d in we['avail'] if d not in no_off]
+                c = [d for d in day_cands if branch_load[b].get(d, 0) - 1 >= min_workers]
+                if not c:
+                    c = day_cands
+                c_set = set(c)
+                pairs = [[d, d+1] for d in c if (d+1) in c_set
                          and max_run([d, d+1]) < 4 and max_work_run([d, d+1]) <= 6]
-                pairs.sort(key=lambda p: -(branch_load[b].get(p[0],0)+branch_load[b].get(p[1],0)))
                 if pairs:
+                    pairs.sort(key=lambda p: -(branch_load[b].get(p[0],0) + branch_load[b].get(p[1],0)))
                     picked = list(pairs[0])
-                    if n_off > 2:
-                        for d in sorted([d for d in cands if d not in picked],
-                                        key=lambda d: max_work_run(picked + [d])):
-                            if len(picked) >= n_off: break
-                            if max_run(picked + [d]) < 4 and max_work_run(picked + [d]) <= 6:
-                                picked.append(d)
-                        if len(picked) < n_off:
-                            for d in sorted([d for d in cands if d not in picked],
-                                            key=lambda d: max_work_run(picked + [d])):
-                                if len(picked) >= n_off: break
-                                if max_run(picked + [d]) < 4:
-                                    picked.append(d)
-                else:
-                    safe = [d for d in cands if max_run([d]) < 4 and max_work_run([d]) <= 6]
-                    if not safe:
-                        safe = sorted([d for d in cands if max_run([d]) < 4],
-                                      key=lambda d: max_work_run([d]))
-                    picked = (safe if safe else cands)[:min(n_off, len(cands))]
-            else:
-                safe = [d for d in cands if max_run([d]) < 4 and max_work_run([d]) <= 6]
+            # 남은 off일 개별 선택 (pair 실패 or n_off > 2)
+            for _ in range(n_off - len(picked)):
+                day_cands = [d for d in we['avail'] if d not in no_off and d not in picked]
+                c = [d for d in day_cands if branch_load[b].get(d, 0) - 1 >= min_workers]
+                if not c:
+                    c = day_cands
+                safe = [d for d in c if max_run(picked + [d]) < 4 and max_work_run(picked + [d]) <= 6]
                 if not safe:
-                    safe = sorted([d for d in cands if max_run([d]) < 4],
-                                  key=lambda d: max_work_run([d]))
-                picked = (safe if safe else cands)[:min(n_off, len(cands))]
+                    if not any(max_work_run(picked + [d]) <= 6 for d in c):
+                        c = day_cands
+                        safe = [d for d in c if max_run(picked + [d]) < 4 and max_work_run(picked + [d]) <= 6]
+                    if not safe:
+                        safe = [d for d in c if max_run(picked + [d]) < 4]
+                if not safe:
+                    safe = c
+                if safe:
+                    safe.sort(key=lambda d: (-branch_load[b].get(d, 0), random.random()))
+                    picked.append(safe[0])
             for d in picked:
                 off_map[we['key']].add(d); branch_load[b][d]-=1
 
