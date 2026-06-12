@@ -1638,15 +1638,14 @@ function buildMonthSchedule(y, m) {
         }
         return mx;
       };
-      // 기존 휴무 + 새 날짜 추가 시 최대 연속 근무 일수 계산 (6일 초과 방지용)
+      // 기존 휴무 + 새 날짜 추가 시 최대 연속 근무 일수 계산 (6일 초과 방지용, 월 전체 범위)
       const maxWorkRun = days => {
         const allOff = new Set([...offMap[key], ...days]);
-        const checkTo = wDays[wDays.length - 1];
         let mx = 0, d = startDay;
-        while (d <= checkTo) {
+        while (d <= daysInMonth) {
           if (!allOff.has(d)) {
             let r = 0;
-            while (d + r <= checkTo && !allOff.has(d + r)) r++;
+            while (d + r <= daysInMonth && !allOff.has(d + r)) r++;
             if (r > mx) mx = r;
             d += r;
           } else {
