@@ -18,6 +18,11 @@ BELT_HOURS = {'골드':10,'실버':10,'블랙':10,'레드':9,'블루':9,'퍼플'
 ROT_INTERVAL = 2
 FW5 = {0:0,1:2,2:2,3:1,4:0,5:0,6:0}
 FW4 = {0:0,1:3,2:2,3:1,4:1,5:0,6:0}
+BRANCH_MERGE = {
+    '02. 강남사옥점': '02. 강남사옥점 03. 강남구청점',
+    '03. 강남구청점': '02. 강남사옥점 03. 강남구청점',
+}
+def merged_branch(b): return BRANCH_MERGE.get(b, b)
 
 # ── 헬퍼 ─────────────────────────────────────────────────────────────
 def fb_safe(s):
@@ -176,10 +181,11 @@ def build_month_schedule(employees, y, m):
             if ey<y or (ey==y and em2<m): continue
             if ey==y and em2==m: end_day=edd
 
-        key = emp['branch']+'||'+emp['name']
+        mbranch = merged_branch(emp['branch'])
+        key = mbranch + '||' + emp['name']
         avail_days = list(range(start_day, end_day+1))
 
-        br = emp['branch']
+        br = mbranch
         if br not in branch_load:
             branch_load[br] = {d:0 for d in range(1, days_in_month+1)}
         for d in avail_days:
@@ -190,7 +196,7 @@ def build_month_schedule(employees, y, m):
         hire_dow_js = (date(y,m,start_day).weekday()+1) % 7
         is_hire_month = bool(hd and len(hd)>=10
                              and int(hd[:4])==y and int(hd[5:7])==m)
-        emp_data.append({'key':key,'emp':emp,'start_day':start_day,'end_day':end_day,
+        emp_data.append({'key':key,'emp':{**emp,'branch':mbranch},'start_day':start_day,'end_day':end_day,
                          'avail_days':avail_days,'days_per_week':days_per_week,
                          'store_hours':store_hours,'slots':slots,
                          'hire_dow':hire_dow_js,'is_hire_month':is_hire_month})
@@ -331,7 +337,7 @@ def main():
     print("직원 데이터 로드 중...")
     employees = fetch_employees()
     branches = sorted(
-        set(e['branch'] for e in employees),
+        set(merged_branch(e['branch']) for e in employees),
         key=lambda b: int(re.match(r'(\d+)', b).group(1)) if re.match(r'(\d+)', b) else 999
     )
     print(f"  → {len(employees)}명 / {len(branches)}개 지점 로드됨\n")

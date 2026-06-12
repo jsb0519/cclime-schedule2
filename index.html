@@ -219,7 +219,6 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 <span id="edit-hint" style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
   </div>
   <div class="branch-filter" id="branch-filter"></div>
-  <div id="sch-regular-worker" style="margin-bottom:12px;display:none"></div>
   <div class="sch-outer">
     <table id="sch-table">
       <thead id="sch-head"></thead>
@@ -452,24 +451,6 @@ function fetchTimed(url, opts, ms = 8000) {
   const t = setTimeout(() => ctrl.abort(), ms);
   return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(t));
 }
-async function fbGet(y, m) {
-  try {
-    const r = await fetchTimed(fbUrl(y, m));
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return fromFbData(await r.json());
-  } catch(e) { return null; }
-}
-async function fbSet(y, m, data) {
-  const r = await fetchTimed(fbUrl(y, m), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(toFbData(data))
-  });
-  if (!r.ok) {
-    const msg = await r.text().catch(() => '');
-    throw new Error('HTTP ' + r.status + (msg ? ': ' + msg.slice(0,80) : ''));
-  }
-}
 
 /* ── 지점별 Firebase (동시 수정 충돌 방지) ── */
 function fbBranchKey(branch) { return branch.replace(/[\.#\$\[\]\/]/g, '_'); }
@@ -572,8 +553,8 @@ let _checkedBranches = null; // null = not yet initialized (show all)
   const toRemove = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (!k || !k.startsWith('cclime_sch_')) continue;
-    const parts = k.replace('cclime_sch_', '').split('_');
+    if (!k || !k.startsWith('cclime_sch_v2_')) continue;
+    const parts = k.replace('cclime_sch_v2_', '').split('_');
     if (parts.length !== 2) continue;
     const y = parseInt(parts[0]), m = parseInt(parts[1]);
     if (y < MIN_YEAR || (y === MIN_YEAR && m < MIN_MONTH)) toRemove.push(k);
@@ -871,14 +852,6 @@ function normEntry(e) {
   if ('day_types'   in r && r.day_types) r.day_types = Object.assign({}, r.day_types);
   return r;
 }
-/* Firebase 금지 문자(. # $ [ ] /)를 _ 로 치환한 키로 저장.
-   읽을 때는 값 안의 branch+name으로 원본 키를 복원. */
-function toFbData(data) {
-  const r = {};
-  for (const [k, v] of Object.entries(data))
-    r[k.replace(/[\.#\$\[\]\/]/g, '_')] = v;
-  return r;
-}
 function fromFbData(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const r = {};
@@ -1064,7 +1037,6 @@ function attachFb(y, m) {
         }
         firstPoll = false;
       } else {
-        const branch = document.getElementById('branch-sel').value;
         if (employees.length > 0) {
           setFbStatus(null, '⏳ 근무표 자동 생성 중...');
           setStat('근무표 자동 생성 중...');
@@ -1217,39 +1189,6 @@ function calcStats() {
            turnover1m, turnover3m, avgMonths,
            tenureActiveCount, tenureExitedCount,
            currentCount: current.length };
-}
-
-/* ── 상시 근로자수 계산 (근로기준법 시행령: 연인원 ÷ 가동일수)
-   주7일 운영 사업장 기준: 연인원 = 실제 출근한 날의 합산 (휴무·연차·대휴 제외)
-   scheduleData: {branch||name: {off_days, day_types}} 형식 ── */
-function calcRegularWorkerCount(y, m, branch = null, scheduleData = null) {
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const seen = new Set();
-  const pool = [];
-  [...employees, ...resignedEmployees].forEach(e => {
-    if (branch && e.branch !== branch) return;
-    const k = `${e.branch}||${e.name}||${e.hire_date||''}`;
-    if (!seen.has(k)) { seen.add(k); pool.push(e); }
-  });
-  const OFF_TYPES = new Set(['휴무', '연차', '대휴']);
-  const HALF_TYPES = new Set(['오전반차', '오후반차']);
-  let total = 0;
-  for (let d = 1; d <= daysInMonth; d++) {
-    const ds = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    for (const e of pool) {
-      if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > ds) continue;
-      if (e.exit_date && e.exit_date.length >= 10 && e.exit_date < ds) continue;
-      const sd = scheduleData?.[`${e.branch}||${e.name}`];
-      if (sd) {
-        if ((sd.off_days || []).includes(d)) continue;
-        const dtype = sd.day_types?.[String(d)];
-        if (OFF_TYPES.has(dtype)) continue;
-        if (HALF_TYPES.has(dtype)) { total += 0.5; continue; }
-      }
-      total += 1;
-    }
-  }
-  return Math.round(total / daysInMonth * 10) / 10;
 }
 
 /* ── 지점 상세 모달 ── */
@@ -1719,11 +1658,6 @@ function buildMonthSchedule(y, m) {
   return result;
 }
 
-/* ── 이달+2개월 초기화 ── */
-function addMonth(y, m, n) {
-  const d = new Date(y, m - 1 + n, 1);
-  return [d.getFullYear(), d.getMonth() + 1];
-}
 function initMonth() {
   const branch = document.getElementById('branch-sel').value;
   if (!branch) { alert('지점을 선택한 후 초기화해 주세요.'); return; }
@@ -1834,10 +1768,7 @@ function mkEntry(emp) {
 function buildTable() {
   const branch = document.getElementById('branch-sel').value;
   const isReadOnly = !branch || _viewerMode;
-  // 읽기 전용 안내 표시
-  const notice = document.getElementById('readonly-notice');
   const initBtn = document.getElementById('btn-init');
-  if (notice) notice.style.display = isReadOnly ? 'inline' : 'none';
   if (initBtn) initBtn.style.display = isReadOnly ? 'none' : '';
   const fbStatus = document.getElementById('fb-status');
   const editHint = document.getElementById('edit-hint');
@@ -1878,10 +1809,11 @@ function buildTable() {
     const [hy, hm] = e.hire_date.split('-').map(Number);
     return !(hy > curY || (hy === curY && hm > curM));
   });
+  const bIdx2 = e => { const i = BELT_ORDER.indexOf(e.belt); return i >= 0 ? i : 8; };
   emps.sort((a,b) => {
     const ba=parseInt(a.branch)||999, bb=parseInt(b.branch)||999;
     if (ba!==bb) return ba-bb;
-    return (BELT_ORDER.indexOf(a.belt)??8)-(BELT_ORDER.indexOf(b.belt)??8);
+    return bIdx2(a) - bIdx2(b);
   });
 
   let hd = '<tr><th class="th-name">직원</th><th class="th-shift">근무시간</th>';
@@ -1990,7 +1922,6 @@ function buildTable() {
   });
   document.getElementById('sch-body').innerHTML = body;
 
-  document.getElementById('sch-regular-worker').style.display = 'none';
 }
 
 /* ── Day Status Modal ── */
@@ -2060,34 +1991,6 @@ function saveDayModal() {
 function closeDayModal() {
   document.getElementById('day-modal').classList.remove('open');
   dmKey = null; dmDay = null; dmType = null;
-}
-
-function toggle(key, day) {
-  if (!schData[key]) {
-    const emp = employees.find(e => e.branch+'||'+e.name===key);
-    schData[key] = mkEntry(emp || {name:'',branch:'',belt:'화이트',hire_date:''});
-  }
-  const sd = schData[key];
-  if (!sd.day_types) sd.day_types = {};
-  if (!sd.off_days)  sd.off_days  = [];
-  const cur = sd.day_types[String(day)] || (sd.off_days.includes(day) ? '휴무' : null);
-  const idx = DAY_TYPES_CYCLE.indexOf(cur);
-  if (idx === DAY_TYPES_CYCLE.length - 1) {
-    // 대휴 → 근무
-    delete sd.day_types[String(day)];
-    const oi = sd.off_days.indexOf(day);
-    if (oi >= 0) sd.off_days.splice(oi, 1);
-  } else if (idx >= 0) {
-    // 다음 타입으로 순환
-    sd.day_types[String(day)] = DAY_TYPES_CYCLE[idx + 1];
-    if (!sd.off_days.includes(day)) sd.off_days.push(day);
-  } else {
-    // 근무 → 휴무
-    sd.day_types[String(day)] = '휴무';
-    if (!sd.off_days.includes(day)) sd.off_days.push(day);
-  }
-  buildTable();
-  scheduleAutoSave();
 }
 
 /* ── Shift Modal ── */
@@ -2244,7 +2147,6 @@ function showPeopleList(type) {
   document.getElementById('people-modal').classList.add('open');
 }
 
-/* ── 엑셀 다운로드 ── */
 /* ── 엑셀 다운로드 모달 ── */
 function openExcelModal() {
   const branchSel = document.getElementById('xl-branch');
@@ -2459,10 +2361,11 @@ async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb, empList
     }
     return true;
   });
+  const bIdx2 = e => { const i = BELT_ORDER.indexOf(e.belt); return i >= 0 ? i : 8; };
   emps.sort((a,b) => {
     const ba=parseInt(a.branch)||999, bb=parseInt(b.branch)||999;
     if (ba!==bb) return ba-bb;
-    return (BELT_ORDER.indexOf(a.belt)??8)-(BELT_ORDER.indexOf(b.belt)??8);
+    return bIdx2(a) - bIdx2(b);
   });
 
   const ws = wb.addWorksheet(`${dlY}년${dlM}월`);
