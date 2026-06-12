@@ -386,9 +386,10 @@ let _viewerMode = false;
 
 function showBranchLock(branches) {
   const list = document.getElementById('branch-lock-list');
-  list.innerHTML = branches.map(b =>
-    `<button class="bl-btn" onclick="selectViewerBranch(${JSON.stringify(b)})">${b}</button>`
-  ).join('');
+  list.innerHTML = branches.map((b, i) => `<button class="bl-btn" data-idx="${i}">${b}</button>`).join('');
+  list.querySelectorAll('.bl-btn').forEach((btn, i) => {
+    btn.addEventListener('click', () => selectViewerBranch(branches[i]));
+  });
   document.getElementById('branch-lock').style.display = 'flex';
 }
 function selectViewerBranch(branch) {
