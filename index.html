@@ -931,7 +931,7 @@ function calcMissingEmps(y, m, branch, fb) {
 async function autoInitMissingMonths(branch) {
   if (!branch || employees.length === 0) return;
   const today = new Date();
-  const months = [0, 1, 2].map(offset => {
+  const months = [0, 1].map(offset => {
     const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
   }).filter(({ y, m }) => y > MIN_YEAR || (y === MIN_YEAR && m >= MIN_MONTH));
@@ -986,7 +986,7 @@ async function autoInitAllBranches() {
   _allBranchInitRunning = true;
   const branches = [...new Set(employees.map(e => e.branch))];
   const today = new Date();
-  const months = [0, 1, 2].map(offset => {
+  const months = [0, 1].map(offset => {
     const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
   }).filter(({ y, m }) => y > MIN_YEAR || (y === MIN_YEAR && m >= MIN_MONTH));
