@@ -1638,29 +1638,18 @@ function buildMonthSchedule(y, m) {
         }
         return mx;
       };
-      // 기존 휴무 + 새 날짜 추가 시 최대 연속 근무 일수 계산 (6일 초과 방지용, 월 전체 범위)
-      const maxWorkRun = days => {
-        const allOff = new Set([...offMap[key], ...days]);
-        let mx = 0, d = startDay;
-        while (d <= daysInMonth) {
-          if (!allOff.has(d)) {
-            let r = 0;
-            while (d + r <= daysInMonth && !allOff.has(d + r)) r++;
-            if (r > mx) mx = r;
-            d += r;
-          } else {
-            d++;
-          }
-        }
-        return mx;
-      };
+      // 이전 주 말미의 연속 근무일 수 (이미 확정된 데이터 기반 — 역방향 제약)
+      let prevTrailing = 0;
+      for (let d = wDays[0] - 1; d >= startDay && !offMap[key].has(d); d--) prevTrailing++;
+      // 이번 주 후반부 연속 근무 제약: 이전 주 끝 연속근무 + 이번 주 쌍 직전 근무 ≤ 6
+      const okLeading = d => (prevTrailing + (d - wDays[0])) <= 6;
       let picked = [];
       if (nOff >= 2 && candidates.length >= 2) {
         const cSet = new Set(candidates);
         const pairs = candidates
           .filter(d => cSet.has(d + 1))
           .map(d => [d, d + 1])
-          .filter(pair => maxRun(pair) < 4 && maxWorkRun(pair) <= 6)
+          .filter(pair => maxRun(pair) < 4 && okLeading(pair[0]))
           .sort((p1, p2) => ((load[p2[0]]||0) + (load[p2[1]]||0)) - ((load[p1[0]]||0) + (load[p1[1]]||0)) || (Math.random() - 0.5));
         if (pairs.length > 0) {
           picked = [...pairs[0]];
@@ -1669,12 +1658,12 @@ function buildMonthSchedule(y, m) {
             picked = picked.concat(rem.slice(0, nOff - 2));
           }
         } else {
-          let safe = sortedC.filter(d => maxRun([d]) < 4 && maxWorkRun([d]) <= 6);
+          let safe = sortedC.filter(d => maxRun([d]) < 4 && okLeading(d));
           if (!safe.length) safe = sortedC.filter(d => maxRun([d]) < 4);
           picked = (safe.length ? safe : sortedC).slice(0, Math.min(nOff, candidates.length));
         }
       } else {
-        let safe = sortedC.filter(d => maxRun([d]) < 4 && maxWorkRun([d]) <= 6);
+        let safe = sortedC.filter(d => maxRun([d]) < 4 && okLeading(d));
         if (!safe.length) safe = sortedC.filter(d => maxRun([d]) < 4);
         picked = (safe.length ? safe : sortedC).slice(0, Math.min(nOff, candidates.length));
       }
