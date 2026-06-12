@@ -145,6 +145,14 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 #site-lock .lock-btn{margin-top:14px;width:100%;padding:11px;background:#4F46E5;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s}
 #site-lock .lock-btn:hover{background:#4338CA}
 #site-lock .lock-err{font-size:12px;color:#e53935;min-height:18px;margin-top:8px}
+/* ─ Branch Lock (직원용 지점 선택) ─ */
+#branch-lock{position:fixed;inset:0;background:rgba(26,26,46,.93);z-index:99998;display:none;align-items:center;justify-content:center}
+#branch-lock .bl-box{background:#fff;border-radius:16px;padding:28px 24px;width:340px;max-width:92vw;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+#branch-lock .bl-title{font-size:18px;font-weight:800;color:#1a1a2e;text-align:center;margin-bottom:4px}
+#branch-lock .bl-sub{font-size:12px;color:#888;text-align:center;margin-bottom:16px}
+#branch-lock .bl-list{overflow-y:auto;display:flex;flex-direction:column;gap:7px}
+#branch-lock .bl-btn{padding:11px 14px;background:#f5f5ff;border:1.5px solid #e0e0f5;border-radius:9px;font-size:13px;font-weight:600;color:#1a1a2e;cursor:pointer;text-align:left;transition:.12s;font-family:inherit}
+#branch-lock .bl-btn:hover{background:#4F46E5;color:#fff;border-color:#4F46E5}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
@@ -161,6 +169,15 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
            onkeydown="if(event.key==='Enter')siteUnlock()" oninput="siteUnlockAuto()">
     <div class="lock-err" id="site-pw-error"></div>
     <button class="lock-btn" onclick="siteUnlock()">확인</button>
+  </div>
+</div>
+
+<div id="branch-lock">
+  <div class="bl-box">
+    <div style="font-size:28px;text-align:center;margin-bottom:10px">📍</div>
+    <div class="bl-title">근무 지점 선택</div>
+    <div class="bl-sub">근무하시는 지점을 선택해 주세요</div>
+    <div class="bl-list" id="branch-lock-list"></div>
   </div>
 </div>
 
@@ -319,10 +336,11 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 <script>
 /* ── 사이트 잠금 ── */
 function applyViewerMode() {
-  // viewer(2010) 접속 시 현황판 탭 숨기고 근무표로 고정
+  _viewerMode = true;
   const dashBtn = document.getElementById('tab-dashboard');
   if (dashBtn) dashBtn.style.display = 'none';
   setTimeout(() => showTab('schedule'), 0);
+  // 이미 지점 선택된 경우 직접 적용 (employees 로드 후 populateBranches에서 처리)
 }
 (function(){
   const a = sessionStorage.getItem('site_auth');
@@ -354,6 +372,27 @@ function siteUnlockAuto(){
   if(validPw) siteUnlock();
 }
 const MASTER_PASSWORDS = ['cc0000', 'cclime1616'];
+let _viewerMode = false;
+
+function showBranchLock(branches) {
+  const list = document.getElementById('branch-lock-list');
+  list.innerHTML = branches.map(b =>
+    `<button class="bl-btn" onclick="selectViewerBranch(${JSON.stringify(b)})">${b}</button>`
+  ).join('');
+  document.getElementById('branch-lock').style.display = 'flex';
+}
+function selectViewerBranch(branch) {
+  sessionStorage.setItem('viewer_branch', branch);
+  document.getElementById('branch-lock').style.display = 'none';
+  applyViewerBranch(branch);
+}
+function applyViewerBranch(branch) {
+  const sel = document.getElementById('branch-sel');
+  sel.value = branch;
+  sel.style.display = 'none';
+  _doBranchChange();
+}
+
 function _doBranchChange() {
   schData = loadLs(curY, curM);
   renderBranchFilter();
@@ -1795,7 +1834,7 @@ function mkEntry(emp) {
 
 function buildTable() {
   const branch = document.getElementById('branch-sel').value;
-  const isReadOnly = !branch;
+  const isReadOnly = !branch || _viewerMode;
   // 읽기 전용 안내 표시
   const notice = document.getElementById('readonly-notice');
   const initBtn = document.getElementById('btn-init');
@@ -2177,10 +2216,18 @@ function onBranchChange() {
 function populateBranches() {
   const branches = [...new Set(employees.map(e=>e.branch))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
   const sel = document.getElementById('branch-sel');
-  const cur = sel.value;
   sel.innerHTML = '<option value="">전체지점 (보기전용)</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
+  if (_viewerMode) {
+    const stored = sessionStorage.getItem('viewer_branch');
+    if (stored && branches.includes(stored)) {
+      applyViewerBranch(stored);
+    } else {
+      showBranchLock(branches);
+    }
+    return;
+  }
+  const cur = sel.value;
   if (cur && branches.includes(cur)) sel.value = cur;
-  // 새로 생긴 지점은 자동으로 체크 목록에 추가
   if (_checkedBranches !== null) branches.forEach(b => { if (!_checkedBranches.has(b)) _checkedBranches.add(b); });
   renderBranchFilter();
 }
