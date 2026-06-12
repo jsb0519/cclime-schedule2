@@ -852,7 +852,7 @@ function onResignedData(resp) {
 }
 
 /* ── localStorage 유틸 ── */
-function lsKey(y, m) { return `cclime_sch_${y}_${String(m).padStart(2,'0')}`; }
+function lsKey(y, m) { return `cclime_sch_v2_${y}_${String(m).padStart(2,'0')}`; }
 function loadLs(y, m) {
   try { return JSON.parse(localStorage.getItem(lsKey(y,m)) || '{}'); } catch { return {}; }
 }
