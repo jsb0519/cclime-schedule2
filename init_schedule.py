@@ -5,6 +5,10 @@ SHEET_ID = '1kXGHbBBIAIXoNkXbEXzck0oKGF9RYQddhO279HociSo'
 GID      = '0'
 FB_BASE  = 'https://cclime-schedule-cb047-default-rtdb.asia-southeast1.firebasedatabase.app'
 BELT_ORDER = ['골드','실버','블랙','레드','블루','퍼플','옐로우','화이트','실습생']
+BRANCH_MERGE = {
+    '02. 강남사옥점': '02. 강남사옥점 03. 강남구청점',
+    '03. 강남구청점': '02. 강남사옥점 03. 강남구청점',
+}
 
 def fetch_gviz():
     url = f'https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:json&gid={GID}'
@@ -119,7 +123,7 @@ def build_month_schedule(y, m, employees, sched_start_day=1):
 
         key = emp['branch']+'||'+emp['name']
         avail = list(range(start_day, end_day+1))
-        branch = emp['branch']
+        branch = BRANCH_MERGE.get(emp['branch'], emp['branch'])
         if branch not in branch_load:
             branch_load[branch] = {d: 0 for d in range(1, dim+1)}
         for d in avail: branch_load[branch][d] += 1
@@ -232,7 +236,7 @@ def build_month_schedule(y, m, employees, sched_start_day=1):
     belt_idx = lambda b: BELT_ORDER.index(b) if b in BELT_ORDER else 8
     branch_list = {}
     for ed in emp_data:
-        b=ed['emp']['branch']
+        b=ed['branch']
         if b not in branch_list: branch_list[b]=[]
         branch_list[b].append({'key':ed['key'],'belt':ed['emp'].get('belt','화이트')})
     for arr in branch_list.values(): arr.sort(key=lambda x:belt_idx(x['belt']))
@@ -245,7 +249,7 @@ def build_month_schedule(y, m, employees, sched_start_day=1):
         by_b = {}
         for ed in emp_data:
             if d<ed['start_day'] or d>ed['end_day'] or d in off_map[ed['key']]: continue
-            b=ed['emp']['branch']
+            b=ed['branch']
             if b not in by_b: by_b[b]=[]
             by_b[b].append({'key':ed['key'],'slots':ed['slots'],'belt':ed['emp'].get('belt','화이트')})
         rot=(d-1)//ROT
@@ -257,7 +261,7 @@ def build_month_schedule(y, m, employees, sched_start_day=1):
     result = {}
     for ed in emp_data:
         key=ed['key']; emp=ed['emp']
-        result[key]={'name':emp['name'],'branch':emp['branch'],'belt':emp.get('belt','화이트'),
+        result[key]={'name':emp['name'],'branch':ed['branch'],'belt':emp.get('belt','화이트'),
                      'hire_date':emp.get('hire_date',''),'exit_date':emp.get('exit_date',''),
                      'work_type':emp.get('work_type',''),'shift_hours':ed['sh'],
                      'shift_slots':ed['slots'],'shift_base_offset':base_off.get(key,0),
@@ -316,7 +320,7 @@ def main():
     mode_label = ' [강제 재생성]' if force else ''
     print(f'\n=== 전체 지점 근무표 자동 초기화{mode_label} ({months[0][0]}/{months[0][1]}월 ~ {months[-1][0]}/{months[-1][1]}월) ===\n')
 
-    branches = sorted(set(e['branch'] for e in employees),
+    branches = sorted(set(BRANCH_MERGE.get(e['branch'], e['branch']) for e in employees),
                       key=lambda b: int(re.search(r'\d+',b).group()) if re.search(r'\d+',b) else 999)
     print(f'지점 수: {len(branches)}개\n')
 

@@ -354,6 +354,11 @@ const GID      = '0';
 
 const BELT_ORDER = ['골드','실버','블랙','레드','블루','퍼플','옐로우','화이트','실습생'];
 const BELT_HOURS = {골드:10,실버:10,블랙:10,레드:9,블루:9,퍼플:8,옐로우:8,화이트:8,실습생:8};
+const BRANCH_MERGE = {
+  '02. 강남사옥점': '02. 강남사옥점 03. 강남구청점',
+  '03. 강남구청점': '02. 강남사옥점 03. 강남구청점',
+};
+function mergedBranch(b) { return BRANCH_MERGE[b] || b; }
 const DEFAULT_START = '10:00';
 const DAY_TYPES_CYCLE = ['휴무','연차','오전반차','오후반차','대휴'];
 const TYPE_CLS = {'휴무':'d-off','연차':'d-annual','오전반차':'d-amhalf','오후반차':'d-pmhalf','대휴':'d-comp'};
@@ -605,7 +610,7 @@ function onEmployeeData(resp) {
 
     employees = [];
     rows.slice(dataStart).forEach(row => {
-      const branch = getStr(row, iB);
+      const branch = mergedBranch(getStr(row, iB));
       const name   = getStr(row, iN);
       if (!branch || !name) return;
       const role     = getStr(row, iR);
@@ -766,7 +771,7 @@ function onResignedData(resp) {
 
     resignedEmployees = [];
     rows.slice(dataStart).forEach(row => {
-      const branch = getStr(row, iB);
+      const branch = mergedBranch(getStr(row, iB));
       const name   = getStr(row, iN);
       if (!branch || !name) return;
       let exitDate = parseDate(row.c && row.c[iE]);
