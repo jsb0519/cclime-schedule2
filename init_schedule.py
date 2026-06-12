@@ -181,21 +181,55 @@ def build_month_schedule(y, m, employees):
                         while (d+r) in all_off: r += 1
                         if r > mx: mx = r
                 return mx
+            def max_work_run(new_days):
+                all_off = off_map[we['key']] | set(new_days)
+                check_to = w_days[-1]
+                mx, d = 0, we['sd']
+                while d <= check_to:
+                    if d not in all_off:
+                        r = 0
+                        while d+r <= check_to and (d+r) not in all_off: r += 1
+                        if r > mx: mx = r
+                        d += r
+                    else:
+                        d += 1
+                return mx
+            # 연속근무 6일 제한을 만족하는 날이 cands에 없으면 min_workers 완화
+            all_avail = [d for d in we['avail'] if d not in no_off]
+            if all_avail and not any(max_work_run([d]) <= 6 for d in cands):
+                cands = all_avail
+                cands.sort(key=lambda d: (-branch_load[b].get(d, 0), random.random()))
             picked = []
             if n_off >= 2 and len(cands) >= 2:
                 c_set = set(cands)
-                pairs = [[d, d+1] for d in cands if (d+1) in c_set and max_run([d, d+1]) < 4]
+                pairs = [[d, d+1] for d in cands if (d+1) in c_set
+                         and max_run([d, d+1]) < 4 and max_work_run([d, d+1]) <= 6]
                 pairs.sort(key=lambda p: -(branch_load[b].get(p[0],0)+branch_load[b].get(p[1],0)))
                 if pairs:
                     picked = list(pairs[0])
                     if n_off > 2:
-                        rem = [d for d in cands if d not in picked]
-                        picked += rem[:n_off-2]
+                        for d in sorted([d for d in cands if d not in picked],
+                                        key=lambda d: max_work_run(picked + [d])):
+                            if len(picked) >= n_off: break
+                            if max_run(picked + [d]) < 4 and max_work_run(picked + [d]) <= 6:
+                                picked.append(d)
+                        if len(picked) < n_off:
+                            for d in sorted([d for d in cands if d not in picked],
+                                            key=lambda d: max_work_run(picked + [d])):
+                                if len(picked) >= n_off: break
+                                if max_run(picked + [d]) < 4:
+                                    picked.append(d)
                 else:
-                    safe = [d for d in cands if max_run([d]) < 4]
+                    safe = [d for d in cands if max_run([d]) < 4 and max_work_run([d]) <= 6]
+                    if not safe:
+                        safe = sorted([d for d in cands if max_run([d]) < 4],
+                                      key=lambda d: max_work_run([d]))
                     picked = (safe if safe else cands)[:min(n_off, len(cands))]
             else:
-                safe = [d for d in cands if max_run([d]) < 4]
+                safe = [d for d in cands if max_run([d]) < 4 and max_work_run([d]) <= 6]
+                if not safe:
+                    safe = sorted([d for d in cands if max_run([d]) < 4],
+                                  key=lambda d: max_work_run([d]))
                 picked = (safe if safe else cands)[:min(n_off, len(cands))]
             for d in picked:
                 off_map[we['key']].add(d); branch_load[b][d]-=1
@@ -278,13 +312,14 @@ def main():
     force = '--force' in sys.argv
     today = date.today()
     months = target_months(today)
-    mode_label = ' [강제 재생성]' if force else ''
-    print(f'=== 전체 지점 근무표 자동 초기화{mode_label} ({months[0][0]}/{months[0][1]}월 ~ {months[-1][0]}/{months[-1][1]}월) ===\n')
 
     print('직원 데이터 로드 중...')
     gviz = fetch_gviz()
     employees = parse_employees(gviz)
     print(f'직원 {len(employees)}명 로드 완료')
+
+    mode_label = ' [강제 재생성]' if force else ''
+    print(f'\n=== 전체 지점 근무표 자동 초기화{mode_label} ({months[0][0]}/{months[0][1]}월 ~ {months[-1][0]}/{months[-1][1]}월) ===\n')
 
     branches = sorted(set(e['branch'] for e in employees),
                       key=lambda b: int(re.search(r'\d+',b).group()) if re.search(r'\d+',b) else 999)
