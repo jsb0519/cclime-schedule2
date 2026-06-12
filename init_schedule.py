@@ -236,7 +236,7 @@ def build_month_schedule(y, m, employees):
                      'off_days':sorted(off_map[key]),'day_types':{}}
     return result
 
-def fb_key(s): return re.sub(r'[.#$\[\]/ ]', '_', s)
+def fb_key(s): return re.sub(r'[.#$\[\]/]', '_', s)
 
 def fb_get_branch(y, m, branch):
     """Firebase에서 해당 지점/월 데이터 읽기. 없으면 None 반환."""
