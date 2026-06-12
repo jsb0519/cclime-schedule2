@@ -135,12 +135,6 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .xl-mc{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1.5px solid #ddd;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;user-select:none;transition:.12s;color:#666;background:#fff}
 .xl-mc.on{border-color:#4F46E5;background:#EEF2FF;color:#4F46E5}
 .xl-mc input{display:none}
-/* ─ Password Modal ─ */
-.pw-input{padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;width:100%;outline:none;transition:.15s}
-.pw-input:focus{border-color:#4F46E5}
-.pw-error{font-size:12px;color:#e53935;min-height:18px;margin-top:6px}
-.pw-lock-icon{font-size:32px;text-align:center;margin-bottom:8px}
-.pw-branch-name{font-size:15px;font-weight:700;color:#1a1a2e;text-align:center;margin-bottom:16px}
 /* ─ Site Lock ─ */
 #site-lock{position:fixed;inset:0;background:#1a1a2e;z-index:99999;display:flex;align-items:center;justify-content:center}
 #site-lock .lock-box{background:#fff;border-radius:16px;padding:36px 32px;width:320px;max-width:90vw;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.4)}
@@ -151,14 +145,11 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 #site-lock .lock-btn{margin-top:14px;width:100%;padding:11px;background:#4F46E5;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s}
 #site-lock .lock-btn:hover{background:#4338CA}
 #site-lock .lock-err{font-size:12px;color:#e53935;min-height:18px;margin-top:8px}
-/* ─ Admin Toast ─ */
-#admin-toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:11px 22px;border-radius:8px;font-size:13px;font-weight:600;z-index:9998;display:none;box-shadow:0 4px 16px rgba(0,0,0,.35);white-space:nowrap}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
 
-<div id="admin-toast">🔒 해당 페이지는 관리자 전용 페이지입니다.</div>
 
 <!-- ══ SITE LOCK ══ -->
 <div id="site-lock">
@@ -308,19 +299,6 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
   </div>
 </div>
 
-<!-- ══ PASSWORD MODAL ══ -->
-<div class="overlay" id="pw-modal">
-  <div class="modal" style="max-width:340px;width:90vw">
-    <div class="pw-lock-icon">🔒</div>
-    <div class="pw-branch-name" id="pw-branch-name"></div>
-    <input class="pw-input" type="password" id="pw-input" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter')submitPw()">
-    <div class="pw-error" id="pw-error"></div>
-    <div class="modal-btns" style="margin-top:16px">
-      <button class="btn-cancel" onclick="cancelPw()">취소</button>
-      <button class="btn-ok" onclick="submitPw()">확인</button>
-    </div>
-  </div>
-</div>
 
 <!-- ══ SHIFT MODAL ══ -->
 <div class="overlay" id="modal">
@@ -350,105 +328,19 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 })();
 function siteUnlock(){
   const pw = document.getElementById('site-pw-input').value;
-  // 마스터 비밀번호 체크는 BRANCH_PASSWORDS/MASTER_PASSWORDS 선언 후에 참조하므로
-  // 함수 호출 시점에는 이미 정의되어 있음
   if(pw === '2010'){
     sessionStorage.setItem('site_auth','viewer');
     document.getElementById('site-lock').style.display='none';
   } else if(typeof MASTER_PASSWORDS !== 'undefined' && MASTER_PASSWORDS.includes(pw)){
     sessionStorage.setItem('site_auth','master');
     document.getElementById('site-lock').style.display='none';
-  } else if(typeof BRANCH_PASSWORDS !== 'undefined'){
-    const matched = Object.entries(BRANCH_PASSWORDS).find(([,v])=>v===pw)?.[0];
-    if(matched){
-      sessionStorage.setItem('site_auth','branch');
-      sessionStorage.setItem('site_auth_branch', matched);
-      document.getElementById('site-lock').style.display='none';
-    } else {
-      document.getElementById('site-pw-error').textContent='비밀번호가 올바르지 않습니다.';
-      document.getElementById('site-pw-input').value='';
-      document.getElementById('site-pw-input').focus();
-    }
-  }
-}
-function showAdminToast(){
-  const el = document.getElementById('admin-toast');
-  el.style.display='block';
-  clearTimeout(el._t);
-  el._t = setTimeout(()=>{ el.style.display='none'; }, 3000);
-}
-
-/* ── 지점 비밀번호 ── */
-const BRANCH_PASSWORDS = {
-  '01. 신사본점':  'cc2847',
-  '02. 강남사옥점':'cc5193',
-  '03. 강남구청점':'cc7364',
-  '04. 삼성점':    'cc1528',
-  '05. 선릉점':    'cc9073',
-  '06. 중앙대점':  'cc4612',
-  '07. 홍대점':    'cc8351',
-  '08. 목동점':    'cc2976',
-  '09. 수원점':    'cc6438',
-  '10. 판교점':    'cc3917',
-  '11. 부천점':    'cc7285',
-  '12. 대전시청점':'cc4163',
-  '13. 대전관저점':'cc8729',
-  '14. 광주점':    'cc5384',
-  '15. 목포점':    'cc1697',
-  '16. 대구점':    'cc9241',
-  '17. 부산서면점':'cc6835',
-  '18. 부산센텀점':'cc3578',
-  '19. 창원점':    'cc7142',
-  '20. 성수점':    'cc4896'
-};
-const MASTER_PASSWORDS = ['cc0000', 'cclime1616'];
-const _unlockedBranches = new Set();
-let _pwPendingBranch = null;
-
-function requestBranchAccess(branch) {
-  if (!branch || _unlockedBranches.has(branch)) {
-    _doBranchChange();
-    return;
-  }
-  const siteAuth = sessionStorage.getItem('site_auth');
-  // 마스터 비밀번호로 접속 → 모든 지점 자동 잠금해제
-  if (siteAuth === 'master') {
-    _unlockedBranches.add(branch);
-    _doBranchChange();
-    return;
-  }
-  // 지점 비밀번호로 접속 → 해당 지점만 자동 잠금해제
-  if (siteAuth === 'branch' && sessionStorage.getItem('site_auth_branch') === branch) {
-    _unlockedBranches.add(branch);
-    _doBranchChange();
-    return;
-  }
-  // 일반(2010) 접속 또는 다른 지점 비밀번호 → 관리자 전용 안내
-  showAdminToast();
-  document.getElementById('branch-sel').value = '';
-  _pwPendingBranch = null;
-  _doBranchChange();
-}
-function submitPw() {
-  const pw = document.getElementById('pw-input').value;
-  const branch = _pwPendingBranch;
-  const expected = BRANCH_PASSWORDS[branch];
-  if (MASTER_PASSWORDS.includes(pw) || (expected && pw === expected)) {
-    _unlockedBranches.add(branch);
-    document.getElementById('pw-modal').classList.remove('open');
-    _doBranchChange();
   } else {
-    document.getElementById('pw-error').textContent = '비밀번호가 올바르지 않습니다.';
-    document.getElementById('pw-input').value = '';
-    document.getElementById('pw-input').focus();
+    document.getElementById('site-pw-error').textContent='비밀번호가 올바르지 않습니다.';
+    document.getElementById('site-pw-input').value='';
+    document.getElementById('site-pw-input').focus();
   }
 }
-function cancelPw() {
-  document.getElementById('pw-modal').classList.remove('open');
-  document.getElementById('branch-sel').value = '';
-  _pwPendingBranch = null;
-  _doBranchChange();
-}
+const MASTER_PASSWORDS = ['cc0000', 'cclime1616'];
 function _doBranchChange() {
   schData = loadLs(curY, curM);
   renderBranchFilter();
@@ -2044,7 +1936,7 @@ function buildTable() {
 
   /* ── 지점 상시 근로자수 ── */
   const rwEl = document.getElementById('sch-regular-worker');
-  if (!branch || !_unlockedBranches.has(branch)) {
+  if (!branch) {
     rwEl.style.display = 'none';
   } else {
     const now = new Date();
@@ -2262,8 +2154,7 @@ function nextMonth() {
   curM++; if (curM>12){curM=1;curY++;} renderSchedule();
 }
 function onBranchChange() {
-  const branch = document.getElementById('branch-sel').value;
-  requestBranchAccess(branch);
+  _doBranchChange();
 }
 function populateBranches() {
   const branches = [...new Set(employees.map(e=>e.branch))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
