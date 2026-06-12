@@ -866,7 +866,7 @@ async function autoInitMissingMonths(branch) {
   const months = [0, 1, 2].map(offset => {
     const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
-  });
+  }).filter(({ y, m }) => y > MIN_YEAR || (y === MIN_YEAR && m >= MIN_MONTH));
   for (const { y, m } of months) {
     const key = `${branch}_${y}_${m}`;
     if (_autoInitDone.has(key)) continue;
@@ -921,7 +921,7 @@ async function autoInitAllBranches() {
   const months = [0, 1, 2].map(offset => {
     const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
-  });
+  }).filter(({ y, m }) => y > MIN_YEAR || (y === MIN_YEAR && m >= MIN_MONTH));
   let generated = 0;
   for (const branch of branches) {
     for (const { y, m } of months) {
@@ -2256,23 +2256,28 @@ function openExcelModal() {
   const cur = document.getElementById('branch-sel').value;
   if (cur) branchSel.value = cur;
 
-  // 월 칩: 3개월 전 ~ 현재 +2개월
+  // 월 칩: MIN_MONTH ~ 현재 +2개월
   const today = new Date();
-  const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const defaultKey = `${prev.getFullYear()}_${prev.getMonth() + 1}`;
   const container = document.getElementById('xl-months');
   const chips = [];
+  let defaultKey = null;
   for (let off = -3; off <= 2; off++) {
     const d = new Date(today.getFullYear(), today.getMonth() + off, 1);
     const y = d.getFullYear(), m = d.getMonth() + 1;
+    if (y < MIN_YEAR || (y === MIN_YEAR && m < MIN_MONTH)) continue;
     const key = `${y}_${m}`;
-    const isDefault = key === defaultKey;
+    if (!defaultKey) defaultKey = key; // MIN_MONTH 이후 첫 달을 기본 선택
     chips.push(
-      `<label class="xl-mc${isDefault ? ' on' : ''}" data-key="${key}" onclick="xlToggleMonth(this)">` +
-      `<input type="checkbox" value="${key}"${isDefault ? ' checked' : ''}>${y}년 ${m}월</label>`
+      `<label class="xl-mc" data-key="${key}" onclick="xlToggleMonth(this)">` +
+      `<input type="checkbox" value="${key}">${y}년 ${m}월</label>`
     );
   }
   container.innerHTML = chips.join('');
+  // 기본 달 선택
+  if (defaultKey) {
+    const lbl = container.querySelector(`[data-key="${defaultKey}"]`);
+    if (lbl) { lbl.classList.add('on'); lbl.querySelector('input').checked = true; }
+  }
 
   document.getElementById('xl-msg').textContent = '';
   document.getElementById('xl-snap-info').style.display = 'none';
