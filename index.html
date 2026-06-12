@@ -2002,70 +2002,7 @@ function buildTable() {
   });
   document.getElementById('sch-body').innerHTML = body;
 
-  /* ── 지점 상시 근로자수 ── */
-  const rwEl = document.getElementById('sch-regular-worker');
-  if (!branch) {
-    rwEl.style.display = 'none';
-  } else {
-    const cY = curY, cM = curM;
-    const prevD = new Date(cY, cM - 2, 1);
-    const pY = prevD.getFullYear(), pM = prevD.getMonth() + 1;
-    const rcCur = calcRegularWorkerCount(cY, cM, branch, schData);
-    if (!window._rwGen) window._rwGen = 0;
-    const myGen = ++window._rwGen;
-    const badge = v => v >= 5
-      ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#D1FAE5;color:#065F46;font-size:10px;font-weight:700">5인 이상 ✓</span>`
-      : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280;font-size:10px;font-weight:700">5인 미만</span>`;
-    const renderRW = (rcPrev, prevLabel) => {
-      if (window._rwGen !== myGen) return; // buildTable이 재호출됐으면 무시
-      rwEl.style.display = 'block';
-      rwEl.innerHTML = `
-        <div style="background:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 2px 8px rgba(0,0,0,.08);border-left:4px solid #4F46E5">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-            <span style="font-size:13px;font-weight:800;color:#1a1a2e">⚖️ 상시 근로자수</span>
-            <span style="font-size:11px;color:#888">실제 근무 연인원 ÷ 가동일수 (근로기준법 시행령 기준)</span>
-          </div>
-          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
-            <div style="flex:1;min-width:130px">
-              <div style="font-size:11px;color:#888;margin-bottom:4px">${pY}년 ${pM}월 (확정)${prevLabel}</div>
-              <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-                <span style="font-size:28px;font-weight:800;color:${rcPrev>=5?'#059669':'#6B7280'}">${rcPrev.toFixed(1)}<span style="font-size:14px;font-weight:600">명</span></span>
-                ${badge(rcPrev)}
-              </div>
-            </div>
-            <div style="width:1px;height:48px;background:#e8e8e8;flex-shrink:0"></div>
-            <div style="flex:1;min-width:130px">
-              <div style="font-size:11px;color:#888;margin-bottom:4px">${cY}년 ${cM}월 (해당월)</div>
-              <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-                <span style="font-size:28px;font-weight:800;color:${rcCur>=5?'#059669':'#6B7280'}">${rcCur.toFixed(1)}<span style="font-size:14px;font-weight:600">명</span></span>
-                ${badge(rcCur)}
-              </div>
-              <div style="font-size:10px;color:#aaa;margin-top:2px">오늘까지 연인원 기준</div>
-            </div>
-            <div style="flex:2;min-width:200px;display:flex;flex-direction:column;gap:6px">
-              <div style="background:#F8F9FF;border-radius:8px;padding:8px 12px;font-size:11px;color:#555;line-height:1.8">
-                <strong style="color:#3730A3">5인 이상 사업장 적용 법률</strong><br>
-                연차유급휴가 · 해고예고 · 부당해고 구제신청<br>
-                연장·야간·휴일근로 가산수당
-              </div>
-              <div style="background:#FFF7ED;border-radius:8px;padding:8px 12px;font-size:11px;color:#555;line-height:1.8">
-                <strong style="color:#C2410C">10인 이상 사업장 적용 법률</strong><br>
-                취업규칙 작성 의무 (근로기준법 제93조)
-              </div>
-            </div>
-          </div>
-        </div>`;
-    };
-    rwEl.style.display = 'block';
-    rwEl.innerHTML = `<div style="padding:12px;color:#aaa;font-size:12px">계산 중...</div>`;
-    fbGetAll(pY, pM).then(prevData => {
-      const rcPrev = prevData ? calcRegularWorkerCount(pY, pM, branch, prevData) : 0;
-      const note = prevData ? '' : ' <span style="font-size:10px;color:#9CA3AF">(근무표 없음)</span>';
-      renderRW(rcPrev, note);
-    }).catch(() => {
-      renderRW(0, ' <span style="font-size:10px;color:#9CA3AF">(근무표 없음)</span>');
-    });
-  }
+  document.getElementById('sch-regular-worker').style.display = 'none';
 }
 
 /* ── Day Status Modal ── */
