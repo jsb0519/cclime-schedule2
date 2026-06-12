@@ -142,6 +142,8 @@ def build_month_schedule(y, m, employees):
     for ed in emp_data:
         branch_size[ed['branch']] = branch_size.get(ed['branch'], 0) + 1
 
+    # 월 시작 시 한 번 섞어서 이달 처리 순서 고정 (매월 다른 패턴, 월내 안정)
+    random.shuffle(emp_data)
     off_map = {e['key']:set() for e in emp_data}
     for w_days in weeks:
         w_emp = []
@@ -157,7 +159,7 @@ def build_month_schedule(y, m, employees):
             w_emp.append({'key':ed['key'],'avail':avail,'n_off':n_off,
                           'sd':ed['start_day'],'ed':ed['end_day'],'ihm':ed['is_hire_month'],
                           'branch':ed['branch']})
-        w_emp.sort(key=lambda x:-x['n_off'])
+        w_emp.sort(key=lambda x: -x['n_off'])
         for we in w_emp:
             if not we['n_off']: continue
             no_off = set()
@@ -218,7 +220,7 @@ def build_month_schedule(y, m, employees):
                 if not safe:
                     safe = c
                 if safe:
-                    safe.sort(key=lambda d: (-branch_load[b].get(d, 0), random.random()))
+                    safe.sort(key=lambda d: -branch_load[b].get(d, 0))
                     picked.append(safe[0])
             for d in picked:
                 off_map[we['key']].add(d); branch_load[b][d]-=1
