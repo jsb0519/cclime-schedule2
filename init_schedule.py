@@ -138,6 +138,10 @@ def build_month_schedule(y, m, employees):
         wd.append(d)
         if date(y,m,d).weekday()==6 or d==dim: weeks.append(list(wd)); wd=[]
 
+    branch_size = {}
+    for ed in emp_data:
+        branch_size[ed['branch']] = branch_size.get(ed['branch'], 0) + 1
+
     off_map = {e['key']:set() for e in emp_data}
     for w_days in weeks:
         w_emp = []
@@ -160,9 +164,13 @@ def build_month_schedule(y, m, employees):
             if we['ihm']: sd=we['sd']; no_off={sd,sd+1,sd+2}
             if we['ed']<dim: no_off.add(we['ed'])
             no_off |= {d for d in we['avail'] if date(y, m, d).weekday() == 2}
-            cands = [d for d in we['avail'] if d not in no_off]
             b = we['branch']
             n_off = we['n_off']
+            min_workers = max(1, round(branch_size.get(b, 1) * 0.6))
+            cands = [d for d in we['avail'] if d not in no_off
+                     and branch_load[b].get(d, 0) - 1 >= min_workers]
+            if not cands:
+                cands = [d for d in we['avail'] if d not in no_off]
             cands.sort(key=lambda d: (-branch_load[b].get(d, 0), random.random()))
             def max_run(new_days):
                 all_off = off_map[we['key']] | set(new_days)
@@ -257,9 +265,9 @@ def fb_set_branch(y, m, branch, sched):
         r.read()
 
 def target_months(today):
-    """당월 + 다음 2개월 반환."""
+    """당월 + 다음 1개월 반환."""
     result = []
-    for offset in range(3):
+    for offset in range(2):
         m = today.month + offset
         y = today.year + (m - 1) // 12
         m = (m - 1) % 12 + 1
