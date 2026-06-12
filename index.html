@@ -340,7 +340,17 @@ function applyViewerMode() {
   const dashBtn = document.getElementById('tab-dashboard');
   if (dashBtn) dashBtn.style.display = 'none';
   setTimeout(() => showTab('schedule'), 0);
-  // 이미 지점 선택된 경우 직접 적용 (employees 로드 후 populateBranches에서 처리)
+  // employees가 이미 로드된 경우 직접 지점 선택 처리
+  if (employees.length > 0) {
+    const branches = [...new Set(employees.map(e => e.branch))].sort((a,b) => (parseInt(a)||999)-(parseInt(b)||999));
+    const stored = sessionStorage.getItem('viewer_branch');
+    if (stored && branches.includes(stored)) {
+      applyViewerBranch(stored);
+    } else {
+      showBranchLock(branches);
+    }
+  }
+  // else: populateBranches() 호출 시 처리
 }
 (function(){
   const a = sessionStorage.getItem('site_auth');
