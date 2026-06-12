@@ -53,12 +53,12 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .bf-divider{width:1px;height:18px;background:#e0e0e0;margin:0 2px}
 
 .sch-outer{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);overflow:auto;max-height:calc(100vh - 190px);width:100%;box-sizing:border-box}
-#sch-table{border-collapse:collapse;font-size:13px;white-space:nowrap;width:100%}
-#sch-table thead th{background:#1a1a2e;color:#fff;padding:10px 4px;font-weight:600;position:sticky;top:0;z-index:5;text-align:center;min-width:46px}
-#sch-table thead th.th-name{min-width:140px;text-align:left;padding-left:12px;left:0;z-index:11;position:sticky}
-#sch-table thead th.th-shift{min-width:70px;background:#1e1e3f}
+#sch-table{border-collapse:collapse;font-size:13px;white-space:nowrap;width:100%;table-layout:fixed}
+#sch-table thead th{background:#1a1a2e;color:#fff;padding:10px 4px;font-weight:600;position:sticky;top:0;z-index:5;text-align:center;width:46px}
+#sch-table thead th.th-name{width:140px;text-align:left;padding-left:12px;left:0;z-index:11;position:sticky}
+#sch-table thead th.th-shift{width:70px;background:#1e1e3f}
 #sch-table tbody td{padding:5px 3px;border-bottom:1px solid #f0f0f0;border-right:1px solid #f5f5f5;text-align:center;cursor:pointer;transition:filter .1s}
-#sch-table tbody td.td-name{position:sticky;left:0;background:#fff;z-index:4;padding:5px 10px;text-align:left;border-right:1px solid #e0e0e0;cursor:default;min-width:140px}
+#sch-table tbody td.td-name{position:sticky;left:0;background:#fff;z-index:4;padding:5px 10px;text-align:left;border-right:1px solid #e0e0e0;cursor:default;overflow:hidden;text-overflow:ellipsis}
 #sch-table tbody td.td-shift{background:#f8f8ff;border-right:1px solid #e0e0e0;min-width:70px;cursor:default;font-size:12px;color:#555;text-align:center;padding:5px 4px}
 #sch-table tbody tr:hover td:not(.td-name):not(.td-shift){filter:brightness(.92)}
 
