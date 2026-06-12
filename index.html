@@ -1238,7 +1238,7 @@ function calcRegularWorkerCount(y, m, branch = null, scheduleData = null) {
     const ds = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     for (const e of pool) {
       if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > ds) continue;
-      if (e.exit_date && e.exit_date.length >= 10 && e.exit_date <= ds) continue;
+      if (e.exit_date && e.exit_date.length >= 10 && e.exit_date < ds) continue;
       const sd = scheduleData?.[`${e.branch}||${e.name}`];
       if (sd) {
         if ((sd.off_days || []).includes(d)) continue;
@@ -2007,8 +2007,7 @@ function buildTable() {
   if (!branch) {
     rwEl.style.display = 'none';
   } else {
-    const now = new Date();
-    const cY = now.getFullYear(), cM = now.getMonth() + 1;
+    const cY = curY, cM = curM;
     const prevD = new Date(cY, cM - 2, 1);
     const pY = prevD.getFullYear(), pM = prevD.getMonth() + 1;
     const rcCur = calcRegularWorkerCount(cY, cM, branch, schData);
@@ -2036,7 +2035,7 @@ function buildTable() {
             </div>
             <div style="width:1px;height:48px;background:#e8e8e8;flex-shrink:0"></div>
             <div style="flex:1;min-width:130px">
-              <div style="font-size:11px;color:#888;margin-bottom:4px">${cY}년 ${cM}월 (진행중)</div>
+              <div style="font-size:11px;color:#888;margin-bottom:4px">${cY}년 ${cM}월 (해당월)</div>
               <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
                 <span style="font-size:28px;font-weight:800;color:${rcCur>=5?'#059669':'#6B7280'}">${rcCur.toFixed(1)}<span style="font-size:14px;font-weight:600">명</span></span>
                 ${badge(rcCur)}
