@@ -56,10 +56,10 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 #sch-table{border-collapse:collapse;font-size:11px;white-space:nowrap}
 #sch-table thead th{background:#1a1a2e;color:#fff;padding:7px 3px;font-weight:600;position:sticky;top:0;z-index:5;text-align:center;min-width:38px}
 #sch-table thead th.th-name{min-width:130px;text-align:left;padding-left:10px;left:0;z-index:11;position:sticky}
-#sch-table thead th.th-shift{min-width:60px;left:130px;z-index:11;position:sticky;background:#1e1e3f}
+#sch-table thead th.th-shift{min-width:60px;background:#1e1e3f}
 #sch-table tbody td{padding:2px 2px;border-bottom:1px solid #f0f0f0;border-right:1px solid #f5f5f5;text-align:center;cursor:pointer;transition:filter .1s}
 #sch-table tbody td.td-name{position:sticky;left:0;background:#fff;z-index:4;padding:3px 8px;text-align:left;border-right:1px solid #e0e0e0;cursor:default;min-width:130px}
-#sch-table tbody td.td-shift{position:sticky;left:130px;background:#f8f8ff;z-index:4;border-right:1px solid #e0e0e0;min-width:60px;cursor:default;font-size:10px;color:#555;text-align:center;padding:2px 3px}
+#sch-table tbody td.td-shift{background:#f8f8ff;border-right:1px solid #e0e0e0;min-width:60px;cursor:default;font-size:10px;color:#555;text-align:center;padding:2px 3px}
 #sch-table tbody tr:hover td:not(.td-name):not(.td-shift){filter:brightness(.92)}
 
 .d-work{background:#E8F5E9;color:#1B5E20;font-size:9px;padding:1px 1px;line-height:1.3;border-radius:2px;display:block;cursor:pointer}
@@ -158,7 +158,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <div class="lock-title">끌리메 근무표</div>
     <div class="lock-sub">접근하려면 비밀번호를 입력하세요</div>
     <input class="lock-input" type="password" id="site-pw-input" placeholder="비밀번호"
-           onkeydown="if(event.key==='Enter')siteUnlock()">
+           onkeydown="if(event.key==='Enter')siteUnlock()" oninput="siteUnlockAuto()">
     <div class="lock-err" id="site-pw-error"></div>
     <button class="lock-btn" onclick="siteUnlock()">확인</button>
   </div>
@@ -318,10 +318,17 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 
 <script>
 /* ── 사이트 잠금 ── */
+function applyViewerMode() {
+  // viewer(2010) 접속 시 현황판 탭 숨기고 근무표로 고정
+  const dashBtn = document.getElementById('tab-dashboard');
+  if (dashBtn) dashBtn.style.display = 'none';
+  setTimeout(() => showTab('schedule'), 0);
+}
 (function(){
   const a = sessionStorage.getItem('site_auth');
   if(a === 'viewer' || a === 'master' || a === 'branch'){
     document.getElementById('site-lock').style.display='none';
+    if(a === 'viewer') setTimeout(applyViewerMode, 0);
   } else {
     setTimeout(()=>document.getElementById('site-pw-input').focus(),80);
   }
@@ -331,6 +338,7 @@ function siteUnlock(){
   if(pw === '2010'){
     sessionStorage.setItem('site_auth','viewer');
     document.getElementById('site-lock').style.display='none';
+    applyViewerMode();
   } else if(typeof MASTER_PASSWORDS !== 'undefined' && MASTER_PASSWORDS.includes(pw)){
     sessionStorage.setItem('site_auth','master');
     document.getElementById('site-lock').style.display='none';
@@ -339,6 +347,11 @@ function siteUnlock(){
     document.getElementById('site-pw-input').value='';
     document.getElementById('site-pw-input').focus();
   }
+}
+function siteUnlockAuto(){
+  const pw = document.getElementById('site-pw-input').value;
+  const validPw = pw === '2010' || (typeof MASTER_PASSWORDS !== 'undefined' && MASTER_PASSWORDS.includes(pw));
+  if(validPw) siteUnlock();
 }
 const MASTER_PASSWORDS = ['cc0000', 'cclime1616'];
 function _doBranchChange() {
