@@ -223,9 +223,9 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                          'hire_dow':hire_dow_js,'is_hire_month':is_hire_month})
 
     # 주 목록: 마지막 주는 다음달 초까지 연장해 일요일 마감
-    # prev_overflow_off가 있으면 prefix 날짜는 overflow로 처리 → first_monday부터 시작
-    # prev_overflow_off가 없으면 prefix 날짜도 부분 주(partial week)로 포함 → day 1부터 시작
-    week_start = first_monday if (prefix_days > 0 and prev_overflow_off) else 1
+    # prefix 날짜는 항상 부분 주(partial week)로 포함 → day 1부터 시작
+    # (prev_overflow_off로 이미 배정된 직원은 n_off 조정으로 추가 배정 방지)
+    week_start = 1
     weeks, wd = [], []
     for d in range(week_start, days_in_month + extra_days + 1):
         wd.append(d)
@@ -280,6 +280,9 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                 n_off = min(table.get(ed['hire_dow'],0), len(available))
             else:
                 n_off = round(len(available)*off_per_week/7)
+            # 이미 overflow로 배정된 휴무 수 만큼 차감 (부분 주에서 과다 배정 방지)
+            already_off = sum(1 for d in w_days if d in off_map[ed['key']])
+            n_off = max(0, n_off - already_off)
             w_emp.append({'key':ed['key'],'available':available,'n_off':n_off,
                           'start_day':ed['start_day'],'end_day':ed['end_day'],
                           'is_hire_month':ed['is_hire_month'],'branch':ed['emp']['branch']})

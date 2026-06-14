@@ -1548,10 +1548,9 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   });
 
   // 월~일 기준 주 목록: 마지막 주는 다음달 초까지 연장해 일요일 마감
-  // prevOverflowOff가 있으면 prefix 날짜는 overflow로 처리 → firstMonday부터 시작
-  // prevOverflowOff가 없으면 prefix 날짜도 부분 주(partial week)로 포함 → day 1부터 시작
-  // (이렇게 해야 prefix 기간에 휴무가 배정되어 월말-월초 연속근무 방지)
-  const weekStart = (prefixDays > 0 && prevOverflowOff) ? firstMonday : 1;
+  // prefix 날짜는 항상 부분 주(partial week)로 포함 → day 1부터 시작
+  // (prevOverflowOff로 이미 배정된 직원은 nOff 조정으로 추가 배정 방지)
+  const weekStart = 1;
   const weeks = [];
   let wd = [];
   for (let d = weekStart; d <= daysInMonth + extraDays; d++) {
@@ -1608,6 +1607,9 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
       } else {
         nOff = Math.round(available.length * offPerWeek / 7);
       }
+      // 이미 overflow로 배정된 휴무 수 만큼 차감 (부분 주에서 과다 배정 방지)
+      const alreadyOff = wDays.filter(d => offMap[key].has(d)).length;
+      nOff = Math.max(0, nOff - alreadyOff);
       wEmp.push({ key, available, nOff, startDay, endDay, isHireMonth, branch: emp.branch });
     });
     wEmp.sort((a, b) => (b.nOff - a.nOff) || (Math.random() - 0.5));
