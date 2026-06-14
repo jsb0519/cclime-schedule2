@@ -1499,10 +1499,6 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   const extraDays   = lastDow  === 0 ? 0 : (7 - lastDow);
   const prefixDays  = firstMonday - 1; // 이전 달 마지막 주에서 넘어온 날수
 
-  // ══ PHASE 1: 주 단위 휴무 배정 ══
-  const branchLoad = {};  // 지점별 일별 출근 예정 인원
-  const mOffCnt = {};    // 지점별 날짜별 누적 휴무 수 (월 균등화용)
-
   const empData = [];
   employees.forEach(emp => {
     const wt = parseWorkType(emp.work_type || '');
@@ -1529,17 +1525,6 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
     const key = emp.branch + '||' + emp.name;
     const availDays = [];
     for (let d = startDay; d <= endDay; d++) availDays.push(d);
-    if (!branchLoad[emp.branch]) {
-      branchLoad[emp.branch] = {};
-      mOffCnt[emp.branch] = {};
-      for (let d = 1; d <= daysInMonth + extraDays; d++) { branchLoad[emp.branch][d] = 0; mOffCnt[emp.branch][d] = 0; }
-    }
-    availDays.forEach(d => branchLoad[emp.branch][d]++);
-    // 넘침 날짜 출근 인원도 반영
-    if (endDay === daysInMonth) {
-      for (let d = daysInMonth + 1; d <= daysInMonth + extraDays; d++) branchLoad[emp.branch][d]++;
-    }
-
     const slots = getSlots(storeHours);
     const hireDow = new Date(y, m-1, startDay).getDay();
     const isHireMonth = !!(emp.hire_date && emp.hire_date.length >= 10 &&
@@ -1547,126 +1532,58 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
     empData.push({ key, emp, startDay, endDay, extEndDay, availDays, daysPerWeek, storeHours, slots, hireDow, isHireMonth });
   });
 
-  // 월~일 기준 주 목록: 마지막 주는 다음달 초까지 연장해 일요일 마감
-  // prefix 날짜는 항상 부분 주(partial week)로 포함 → day 1부터 시작
-  // (prevOverflowOff로 이미 배정된 직원은 nOff 조정으로 추가 배정 방지)
-  const weekStart = 1;
+  // 주 목록: firstMonday부터 7일 단위 블록 (마지막 주는 다음달 초까지 연장)
   const weeks = [];
-  let wd = [];
-  for (let d = weekStart; d <= daysInMonth + extraDays; d++) {
-    wd.push(d);
-    if (new Date(y, m-1, d).getDay() === 0) { weeks.push([...wd]); wd = []; }
+  for (let d = firstMonday; d <= daysInMonth + extraDays; d += 7) {
+    weeks.push([d, d+1, d+2, d+3, d+4, d+5, d+6]);
   }
-  if (wd.length > 0) weeks.push([...wd]);
 
   const offMap = {};
   empData.forEach(({ key }) => offMap[key] = new Set());
-  // 이전 달 마지막 주에서 넘어온 이 달 초 휴무일 선반영 (prefixDays > 0인 경우)
+  // 이전 달 마지막 주 overflow 휴무 선반영 (다음달 calendar 표시용)
   if (prevOverflowOff && prefixDays > 0) {
     Object.entries(prevOverflowOff).forEach(([k, days]) => {
       if (offMap[k]) days.forEach(d => offMap[k].add(d));
     });
   }
 
-  // ══ PHASE 1: 주 단위 휴무 배정 ══
-  // 우선순위: ①수요일 전원출근 ②일별 출근 편차 최소화 ③연속근무≤5(부득이시≤6) ④연속휴무≤3 ⑤휴무쌍 연속
-  //
-  // 핵심 전략: 지점 직원을 3그룹으로 나눠 월화/목금/토일 궤도 고정 배정
-  //   → 각 그룹이 매주 같은 요일에 쉬므로 날별 출근 편차가 자동으로 균등화
-  //   → 3개 궤도 모두 최대 연속근무 5일 이하 (수요일 포함해도 ≤5)
-  const empBaseIdx = {}; // key → 지점 내 정렬 순번 (주별 궤도 계산용)
-  const bEmpsByBranch = {};
+  // ══ PHASE 1: 3그룹 고정 휴무 배정 ══
+  // 우선순위 ①수요일 전원출근 ②일별 편차 최소화 ③연속근무≤5 ④연속휴무≤2 ⑤2일 연속 우선
+  // 지점 내 직원을 벨트→이름 순 정렬 후 idx%3으로 그룹:
+  //   0=월화, 1=목금, 2=토일
+  const PAIR_DOWS = [[1,2],[4,5],[6,0]]; // [월,화],[목,금],[토,일]
+  const empGroup = {};
+  const byBranchForGrp = {};
   empData.forEach(({ key, emp }) => {
-    (bEmpsByBranch[emp.branch] = bEmpsByBranch[emp.branch] || []).push({ key, belt: emp.belt||'화이트', name: emp.name });
+    const br = mergedBranch(emp.branch);
+    (byBranchForGrp[br] = byBranchForGrp[br] || []).push({ key, belt: emp.belt||'화이트', name: emp.name });
   });
-  const bIdxT = b => { const i = BELT_ORDER.indexOf(b); return i >= 0 ? i : 8; };
-  Object.values(bEmpsByBranch).forEach(arr => {
-    arr.sort((a, b) => bIdxT(a.belt) - bIdxT(b.belt) || a.name.localeCompare(b.name));
-    arr.forEach(({ key }, i) => { empBaseIdx[key] = i; });
+  const bIdxG = b => { const i = BELT_ORDER.indexOf(b); return i >= 0 ? i : 8; };
+  Object.values(byBranchForGrp).forEach(arr => {
+    arr.sort((a,b) => bIdxG(a.belt) - bIdxG(b.belt) || a.name.localeCompare(b.name));
+    arr.forEach(({ key }, i) => { empGroup[key] = i % 3; });
   });
-  // 궤도별 선호 요일 쌍 (JS getDay: 0=일,1=월,2=화,3=수,4=목,5=금,6=토)
-  const TRAJ_DOWS = [[1,2],[4,5],[6,0]]; // [월화, 목금, 토일]
-  const findTrajPair = (traj, wDays, cSet) => {
-    const [d1d, d2d] = TRAJ_DOWS[traj];
-    const d1 = wDays.find(d => new Date(y,m-1,d).getDay()===d1d && cSet.has(d));
-    const d2 = wDays.find(d => new Date(y,m-1,d).getDay()===d2d && cSet.has(d));
-    return (d1 && d2) ? [d1,d2] : null;
-  };
 
-  weeks.forEach((wDays, weekIdx) => {
-    const wEmp = [];
-    empData.forEach(({ key, emp, startDay, endDay, extEndDay, daysPerWeek, hireDow, isHireMonth }) => {
-      const available = wDays.filter(d => d >= startDay && d <= extEndDay);
-      if (!available.length) return;
-      const offPerWeek = 7 - daysPerWeek;
-      const isHireWeek = isHireMonth && startDay >= wDays[0] && startDay <= wDays[wDays.length - 1];
-      let nOff;
+  weeks.forEach(wDays => {
+    empData.forEach(({ key, startDay, extEndDay, hireDow, isHireMonth, daysPerWeek }) => {
+      const isHireWeek = isHireMonth && startDay >= wDays[0] && startDay <= wDays[6];
       if (isHireWeek) {
-        const table = daysPerWeek <= 4 ? FW4 : FW5;
-        nOff = Math.min(table[hireDow] || 0, available.length);
+        // 입사 주: 입사일+3일 이후 비수요일에서 FW5 기준 n일 배정
+        const tbl = daysPerWeek <= 4 ? FW4 : FW5;
+        const nOff = tbl[hireDow] || 0;
+        const cands = wDays.filter(d =>
+          d > startDay + 2 && d <= extEndDay && new Date(y, m-1, d).getDay() !== 3
+        );
+        cands.slice(0, nOff).forEach(d => { if (!offMap[key].has(d)) offMap[key].add(d); });
       } else {
-        nOff = Math.round(available.length * offPerWeek / 7);
+        // 정규 주: 그룹 요일 쌍 배정
+        const [dow1, dow2] = PAIR_DOWS[empGroup[key] ?? 0];
+        wDays.forEach(d => {
+          if (d < startDay || d > extEndDay) return;
+          const dow = new Date(y, m-1, d).getDay();
+          if ((dow === dow1 || dow === dow2) && !offMap[key].has(d)) offMap[key].add(d);
+        });
       }
-      // 이미 overflow로 배정된 휴무 수 만큼 차감 (부분 주에서 과다 배정 방지)
-      const alreadyOff = wDays.filter(d => offMap[key].has(d)).length;
-      nOff = Math.max(0, nOff - alreadyOff);
-      wEmp.push({ key, available, nOff, startDay, endDay, isHireMonth, branch: emp.branch });
-    });
-    wEmp.sort((a, b) => (b.nOff - a.nOff) || (Math.random() - 0.5));
-    wEmp.forEach(({ key, available, nOff, startDay, endDay, isHireMonth, branch }) => {
-      if (!nOff) return;
-      const noOff = isHireMonth ? new Set([startDay, startDay+1, startDay+2]) : new Set();
-      if (endDay < daysInMonth) noOff.add(endDay);
-      available.filter(d => new Date(y, m-1, d).getDay() === 3).forEach(d => noOff.add(d));
-      const candidates = available.filter(d => !noOff.has(d));
-      const load = branchLoad[branch] || {};
-      const sortedC = [...candidates].sort((a, b) => (load[b] - load[a]) || (Math.random() - 0.5));
-      const moc = mOffCnt[branch] || {};
-      const maxRun = days => {
-        const all = new Set([...offMap[key], ...days]);
-        let mx = 0;
-        for (const d of all) {
-          if (!all.has(d-1)) { let r = 0; while (all.has(d+r)) r++; if (r > mx) mx = r; }
-        }
-        return mx;
-      };
-      // 역방향 연속근무 제약: 이전 주 말미 연속근무 + 이번 주 쌍 시작 전 근무 ≤ 6
-      // prefix 날짜는 부분 주에서 이미 offMap에 휴무가 배정되므로 자연스럽게 멈춤
-      let prevTrailing = 0;
-      for (let d = wDays[0]-1; d >= startDay && !offMap[key].has(d); d--) prevTrailing++;
-      const okLeading = d => (prevTrailing + (d - wDays[0])) <= 6;
-      const cSet = new Set(candidates);
-      let picked = [];
-      if (nOff >= 2 && candidates.length >= 2) {
-        // ① 궤도 선호 쌍 (okLeading·maxRun 통과 시) — 일별 균등화 핵심
-        let pair = findTrajPair((empBaseIdx[key] + m + weekIdx) % 3, wDays, cSet);
-        if (pair && (maxRun(pair) >= 4 || !okLeading(pair[0]))) pair = null;
-        if (!pair) {
-          // ② mOffCnt 기반 균등화 (okLeading 하드 필터, 최대연속≤6 보장)
-          const pairs = candidates
-            .filter(d => cSet.has(d+1))
-            .map(d => [d, d+1])
-            .filter(p => maxRun(p) < 4 && okLeading(p[0]))
-            .sort((p1,p2) => ((moc[p1[0]]||0)+(moc[p1[1]]||0)) - ((moc[p2[0]]||0)+(moc[p2[1]]||0)));
-          pair = pairs.length > 0 ? pairs[0] : null;
-        }
-        if (pair) {
-          picked = [...pair];
-          if (nOff > 2) {
-            const rem = sortedC.filter(d => !picked.includes(d));
-            picked = picked.concat(rem.slice(0, nOff-2));
-          }
-        } else {
-          let safe = sortedC.filter(d => maxRun([d]) < 4 && okLeading(d));
-          if (!safe.length) safe = sortedC.filter(d => maxRun([d]) < 4);
-          picked = (safe.length ? safe : sortedC).slice(0, Math.min(nOff, candidates.length));
-        }
-      } else {
-        let safe = sortedC.filter(d => maxRun([d]) < 4 && okLeading(d));
-        if (!safe.length) safe = sortedC.filter(d => maxRun([d]) < 4);
-        picked = (safe.length ? safe : sortedC).slice(0, Math.min(nOff, candidates.length));
-      }
-      picked.forEach(d => { offMap[key].add(d); if (branchLoad[branch]) branchLoad[branch][d]--; mOffCnt[branch][d]++; });
     });
   });
 

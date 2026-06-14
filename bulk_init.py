@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-전지점 전체 월 스케줄 초기화 + 4월/5월 삭제
-  - 삭제: 2026년 4월, 5월
-  - 초기화: 2026년 6월, 7월, 8월 (전지점)
+전지점 전체 월 스케줄 초기화 + 구월 데이터 삭제
+  - 삭제: 2026년 4월, 5월, 6월
+  - 초기화: 2026년 7월, 8월 (전지점)
+  - 7월6일(월) 주부터 시작 (이전 주는 생략)
 """
 import json, re, math, random, calendar, sys
 import urllib.request, urllib.parse
@@ -174,7 +175,6 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
     prefix_days = first_monday - 1
 
     emp_data = []
-    branch_load = {}
 
     for emp in employees:
         wt = parse_work_type(emp.get('work_type',''))
@@ -195,23 +195,11 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
             if ey<y or (ey==y and em2<m): continue
             if ey==y and em2==m: end_day=edd
 
-        # 월말까지 재직이면 다음달 초 넘침 날짜까지 확장
         ext_end_day = (days_in_month + extra_days) if end_day == days_in_month else end_day
 
         mbranch = merged_branch(emp['branch'])
         key = mbranch + '||' + emp['name']
         avail_days = list(range(start_day, end_day+1))
-
-        br = mbranch
-        if br not in branch_load:
-            branch_load[br] = {d:0 for d in range(1, days_in_month + extra_days + 1)}
-        for d in avail_days:
-            branch_load[br][d] += 1
-        # 넘침 날짜 출근 인원 반영
-        if end_day == days_in_month:
-            for d in range(days_in_month + 1, days_in_month + extra_days + 1):
-                branch_load[br][d] += 1
-
         slots = get_slots(store_hours)
         # JS getDay(): 0=Sun…6=Sat  ← Python weekday()+1 mod 7
         hire_dow_js = (date(y,m,start_day).weekday()+1) % 7
@@ -222,143 +210,65 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                          'store_hours':store_hours,'slots':slots,
                          'hire_dow':hire_dow_js,'is_hire_month':is_hire_month})
 
-    # 주 목록: 마지막 주는 다음달 초까지 연장해 일요일 마감
-    # prefix 날짜는 항상 부분 주(partial week)로 포함 → day 1부터 시작
-    # (prev_overflow_off로 이미 배정된 직원은 n_off 조정으로 추가 배정 방지)
-    week_start = 1
-    weeks, wd = [], []
-    for d in range(week_start, days_in_month + extra_days + 1):
-        wd.append(d)
-        actual_date = date(y, m, 1) + _td(days=d-1)
-        if actual_date.weekday() == 6:
-            weeks.append(list(wd)); wd = []
-    if wd:
-        weeks.append(list(wd))
-
-    off_map = {ed['key']:set() for ed in emp_data}
-    # 이전 달 마지막 주에서 넘어온 이 달 초 휴무일 선반영
-    if prev_overflow_off and prefix_days > 0:
-        for k, days in prev_overflow_off.items():
-            if k in off_map:
-                off_map[k].update(days)
-    m_off_cnt = {br:{d:0 for d in range(1, days_in_month + extra_days + 1)} for br in branch_load}
-
-    # 궤도 배정: 지점별 직원을 0=월화, 1=목금, 2=토일 그룹으로 균등 분배
-    # Python weekday(): 0=월,1=화,2=수,3=목,4=금,5=토,6=일
-    TRAJ_WDAYS = [(0,1),(3,4),(5,6)]  # [(월화),(목금),(토일)]
-    emp_base_idx = {}  # key → 지점 내 정렬 순번 (주별 궤도 계산용)
-    b_emps_by_branch = {}
-    for ed in emp_data:
-        br = ed['emp']['branch']
-        b_emps_by_branch.setdefault(br,[]).append(ed)
-    for arr in b_emps_by_branch.values():
-        arr.sort(key=lambda e: (belt_idx(e['emp'].get('belt','화이트')), e['emp']['name']))
-        for i, ed in enumerate(arr):
-            emp_base_idx[ed['key']] = i
-
     # 날짜 d (넘침 가능)의 요일 계산 헬퍼 (Python weekday: 0=월,...,6=일)
     def day_weekday(d):
         return (date(y, m, 1) + _td(days=d-1)).weekday()
 
-    def find_traj_pair(traj, w_days, c_set):
-        wd1, wd2 = TRAJ_WDAYS[traj]
-        d1 = next((d for d in w_days if day_weekday(d)==wd1 and d in c_set), None)
-        d2 = next((d for d in w_days if day_weekday(d)==wd2 and d in c_set), None)
-        return [d1,d2] if d1 and d2 else None
+    # 주 목록: firstMonday부터 7일 단위 블록 (마지막 주는 다음달 초까지 연장)
+    weeks = []
+    d = first_monday
+    while d <= days_in_month + extra_days:
+        weeks.append(list(range(d, d+7)))
+        d += 7
 
-    for week_idx, w_days in enumerate(weeks):
-        w_emp = []
+    off_map = {ed['key']:set() for ed in emp_data}
+    # 이전 달 마지막 주 overflow 휴무 선반영 (다음달 calendar 표시용)
+    if prev_overflow_off and prefix_days > 0:
+        for k, days in prev_overflow_off.items():
+            if k in off_map:
+                off_map[k].update(days)
+
+    # ══ PHASE 1: 3그룹 고정 휴무 배정 ══
+    # 우선순위 ①수요일 전원출근 ②일별 편차 최소화 ③연속근무≤5 ④연속휴무≤2 ⑤2일 연속 우선
+    # 지점 내 직원을 벨트→이름 순 정렬 후 idx%3으로 그룹:
+    #   0=월화 (py: 0,1), 1=목금 (py: 3,4), 2=토일 (py: 5,6)
+    PAIR_WDAYS = [(0,1),(3,4),(5,6)]  # Python weekday
+    emp_group = {}
+    branch_sorted = {}
+    for ed in emp_data:
+        br = ed['emp']['branch']
+        branch_sorted.setdefault(br, []).append(
+            {'key': ed['key'], 'belt': ed['emp'].get('belt','화이트'), 'name': ed['emp']['name']})
+    for arr in branch_sorted.values():
+        arr.sort(key=lambda x: (belt_idx(x['belt']), x['name']))
+        for i, item in enumerate(arr):
+            emp_group[item['key']] = i % 3
+
+    for w_days in weeks:
         for ed in emp_data:
-            available = [d for d in w_days if ed['start_day']<=d<=ed['ext_end_day']]
-            if not available: continue
-            off_per_week = 7 - ed['days_per_week']
+            key = ed['key']
+            group = emp_group.get(key, 0)
             is_hire_week = (ed['is_hire_month']
-                            and ed['start_day']>=w_days[0]
-                            and ed['start_day']<=w_days[-1])
+                            and ed['start_day'] >= w_days[0]
+                            and ed['start_day'] <= w_days[-1])
             if is_hire_week:
-                table = FW4 if ed['days_per_week']<=4 else FW5
-                n_off = min(table.get(ed['hire_dow'],0), len(available))
+                # 입사 주: 입사일+3일 이후 비수요일에서 FW5 기준 n일 배정
+                table = FW4 if ed['days_per_week'] <= 4 else FW5
+                n_off = table.get(ed['hire_dow'], 0)
+                cands = [d for d in w_days
+                         if d > ed['start_day'] + 2 and d <= ed['ext_end_day']
+                         and day_weekday(d) != 2  # not Wed
+                         and d not in off_map[key]]
+                for d in cands[:n_off]:
+                    off_map[key].add(d)
             else:
-                n_off = round(len(available)*off_per_week/7)
-            # 이미 overflow로 배정된 휴무 수 만큼 차감 (부분 주에서 과다 배정 방지)
-            already_off = sum(1 for d in w_days if d in off_map[ed['key']])
-            n_off = max(0, n_off - already_off)
-            w_emp.append({'key':ed['key'],'available':available,'n_off':n_off,
-                          'start_day':ed['start_day'],'end_day':ed['end_day'],
-                          'is_hire_month':ed['is_hire_month'],'branch':ed['emp']['branch']})
-
-        w_emp.sort(key=lambda x: (-x['n_off'], random.random()))
-
-        for we in w_emp:
-            if not we['n_off']: continue
-            no_off = set()
-            if we['is_hire_month']:
-                no_off.update([we['start_day'], we['start_day']+1, we['start_day']+2])
-            if we['end_day'] < days_in_month:
-                no_off.add(we['end_day'])
-            for d in we['available']:
-                if day_weekday(d)==2: no_off.add(d)
-            candidates = [d for d in we['available'] if d not in no_off]
-
-            load = branch_load.get(we['branch'], {})
-            n_off = we['n_off']
-            candidates.sort(key=lambda d: (-load.get(d,0), random.random()))
-            moc = m_off_cnt.get(we['branch'], {})
-
-            def max_run(new_days):
-                all_off = off_map[we['key']] | set(new_days)
-                mx = 0
-                for d in all_off:
-                    if (d-1) not in all_off:
-                        r = 0
-                        while (d+r) in all_off: r += 1
-                        if r > mx: mx = r
-                return mx
-
-            # 역방향 연속근무 카운트: prefix 날짜는 부분 주에서 이미 offMap에 배정되므로 자연스럽게 멈춤
-            prev_trailing = 0
-            d = w_days[0] - 1
-            while d >= we['start_day'] and d not in off_map[we['key']]:
-                prev_trailing += 1
-                d -= 1
-
-            def ok_leading(first_day):
-                return (prev_trailing + (first_day - w_days[0])) <= 6
-
-            c_set = set(candidates)
-            picked = []
-            if n_off >= 2 and len(candidates) >= 2:
-                # ① 궤도 선호 쌍 (okLeading·maxRun 통과 시)
-                traj = (emp_base_idx.get(we['key'], 0) + m + week_idx) % 3
-                pair = find_traj_pair(traj, w_days, c_set)
-                if pair and (max_run(pair) >= 4 or not ok_leading(pair[0])):
-                    pair = None
-                if not pair:
-                    # ② mOffCnt 기반 균등화 (okLeading 하드 필터)
-                    pairs = [[d, d+1] for d in candidates
-                             if (d+1) in c_set and max_run([d,d+1]) < 4 and ok_leading(d)]
-                    pairs.sort(key=lambda p: moc.get(p[0],0)+moc.get(p[1],0))
-                    pair = pairs[0] if pairs else None
-                if pair:
-                    picked = list(pair)
-                    if n_off > 2:
-                        rem = [d for d in candidates if d not in picked]
-                        picked += rem[:n_off-2]
-                else:
-                    safe = [d for d in candidates if max_run([d]) < 4 and ok_leading(d)]
-                    if not safe:
-                        safe = [d for d in candidates if max_run([d]) < 4]
-                    picked = (safe if safe else candidates)[:min(n_off, len(candidates))]
-            else:
-                safe = [d for d in candidates if max_run([d]) < 4 and ok_leading(d)]
-                if not safe:
-                    safe = [d for d in candidates if max_run([d]) < 4]
-                picked = (safe if safe else candidates)[:min(n_off, len(candidates))]
-
-            for d in picked:
-                off_map[we['key']].add(d)
-                branch_load[we['branch']][d] -= 1
-                m_off_cnt[we['branch']][d] += 1
+                # 정규 주: 그룹 요일 쌍 배정
+                wd1, wd2 = PAIR_WDAYS[group]
+                for d in w_days:
+                    if d < ed['start_day'] or d > ed['ext_end_day']:
+                        continue
+                    if (day_weekday(d) == wd1 or day_weekday(d) == wd2) and d not in off_map[key]:
+                        off_map[key].add(d)
 
     # Phase 2 — 출근 시간 배정
     branch_emp_list = {}
@@ -426,9 +336,9 @@ def main():
     )
     print(f"  → {len(employees)}명 / {len(branches)}개 지점 로드됨\n")
 
-    # 1. 4월, 5월 삭제
-    print("━━ 4월·5월 Firebase 데이터 삭제 ━━")
-    for y, m in [(2026,4), (2026,5)]:
+    # 1. 4월, 5월, 6월 삭제
+    print("━━ 4월·5월·6월 Firebase 데이터 삭제 ━━")
+    for y, m in [(2026,4), (2026,5), (2026,6)]:
         url = fb_month_url(y, m)
         try:
             status, _ = http_request(url, method='DELETE')
@@ -436,9 +346,9 @@ def main():
         except Exception as e:
             print(f"  DELETE {y}년 {m}월 → 오류: {e}")
 
-    # 2. 6월·7월·8월 초기화 (순서대로 — 이전달 넘침 휴무를 다음달에 전달)
+    # 2. 7월·8월 초기화 (순서대로 — 이전달 넘침 휴무를 다음달에 전달)
     prev_overflow = {}  # 이전달 넘침 휴무 (key → [day, ...])
-    for y, m in [(2026,6),(2026,7),(2026,8)]:
+    for y, m in [(2026,7),(2026,8)]:
         print(f"\n━━ {y}년 {m}월 초기화 ━━")
         # prev_overflow의 키는 '브랜치||이름' 형식, Set으로 변환해 전달
         po = {k: set(days) for k, days in prev_overflow.items()} if prev_overflow else None
