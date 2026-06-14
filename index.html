@@ -219,7 +219,6 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 <span id="edit-hint" style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
   </div>
   <div class="branch-filter" id="branch-filter"></div>
-  <div id="sch-regular-worker" style="margin-bottom:12px;display:none"></div>
   <div class="sch-outer">
     <table id="sch-table">
       <thead id="sch-head"></thead>
@@ -429,9 +428,9 @@ const MIN_YEAR = 2026, MIN_MONTH = 7; // 이동 가능 최소 월 (2026년 7월)
 
 function getMaxMonth() {
   const today = new Date();
-  const branch = document.getElementById('branch-sel').value;
-  const ahead = branch ? 2 : 1; // 지점: 당월+2개월, 전체: 당월+1개월
-  const d = new Date(today.getFullYear(), today.getMonth() + ahead, 1);
+  // 정상: 당월+다음달(+1). 2026년 6월 한정으로 8월(+2)까지 허용
+  const special = (today.getFullYear() === 2026 && today.getMonth() === 5) ? 1 : 0;
+  const d = new Date(today.getFullYear(), today.getMonth() + 1 + special, 1);
   return [d.getFullYear(), d.getMonth() + 1];
 }
 function updateNavBtns() {
@@ -451,24 +450,6 @@ function fetchTimed(url, opts, ms = 8000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(t));
-}
-async function fbGet(y, m) {
-  try {
-    const r = await fetchTimed(fbUrl(y, m));
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return fromFbData(await r.json());
-  } catch(e) { return null; }
-}
-async function fbSet(y, m, data) {
-  const r = await fetchTimed(fbUrl(y, m), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(toFbData(data))
-  });
-  if (!r.ok) {
-    const msg = await r.text().catch(() => '');
-    throw new Error('HTTP ' + r.status + (msg ? ': ' + msg.slice(0,80) : ''));
-  }
 }
 
 /* ── 지점별 Firebase (동시 수정 충돌 방지) ── */
@@ -572,8 +553,8 @@ let _checkedBranches = null; // null = not yet initialized (show all)
   const toRemove = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (!k || !k.startsWith('cclime_sch_')) continue;
-    const parts = k.replace('cclime_sch_', '').split('_');
+    if (!k || !k.startsWith('cclime_sch_v2_')) continue;
+    const parts = k.replace('cclime_sch_v2_', '').split('_');
     if (parts.length !== 2) continue;
     const y = parseInt(parts[0]), m = parseInt(parts[1]);
     if (y < MIN_YEAR || (y === MIN_YEAR && m < MIN_MONTH)) toRemove.push(k);
@@ -704,7 +685,7 @@ function onEmployeeData(resp) {
     if (Object.keys(schData).length > 0) {
       const newEmps = employees.filter(emp => !schData[emp.branch + '||' + emp.name]);
       if (newEmps.length > 0) {
-        const fresh = buildMonthSchedule(curY, curM);
+        const fresh = buildMonthSchedule(curY, curM, getPrevOverflowOff(curY, curM));
         newEmps.forEach(emp => {
           const key = emp.branch + '||' + emp.name;
           schData[key] = fresh[key] || mkEntry(emp);
@@ -852,7 +833,7 @@ function onResignedData(resp) {
 }
 
 /* ── localStorage 유틸 ── */
-function lsKey(y, m) { return `cclime_sch_${y}_${String(m).padStart(2,'0')}`; }
+function lsKey(y, m) { return `cclime_sch_v2_${y}_${String(m).padStart(2,'0')}`; }
 function loadLs(y, m) {
   try { return JSON.parse(localStorage.getItem(lsKey(y,m)) || '{}'); } catch { return {}; }
 }
@@ -871,22 +852,15 @@ function normEntry(e) {
   if ('day_types'   in r && r.day_types) r.day_types = Object.assign({}, r.day_types);
   return r;
 }
-/* Firebase 금지 문자(. # $ [ ] /)를 _ 로 치환한 키로 저장.
-   읽을 때는 값 안의 branch+name으로 원본 키를 복원. */
-function toFbData(data) {
-  const r = {};
-  for (const [k, v] of Object.entries(data))
-    r[k.replace(/[\.#\$\[\]\/]/g, '_')] = v;
-  return r;
-}
 function fromFbData(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const r = {};
-  for (const v of Object.values(raw)) {
+  for (const [k, v] of Object.entries(raw)) {
+    if (k === '__overflow') { r.__overflow = v; continue; }
     const e = normEntry(v);
     if (e && e.branch && e.name) r[e.branch + '||' + e.name] = e;
   }
-  return Object.keys(r).length ? r : null;
+  return Object.keys(r).filter(k => k !== '__overflow').length ? r : null;
 }
 
 function setFbStatus(ok, msg) {
@@ -919,7 +893,7 @@ function calcMissingEmps(y, m, branch, fb) {
     return true;
   });
   if (missing.length === 0) return null;
-  const fresh = buildMonthSchedule(y, m);
+  const fresh = buildMonthSchedule(y, m, getPrevOverflowOff(y, m));
   const result = {};
   missing.forEach(emp => {
     const key = emp.branch + '||' + emp.name;
@@ -931,7 +905,9 @@ function calcMissingEmps(y, m, branch, fb) {
 async function autoInitMissingMonths(branch) {
   if (!branch || employees.length === 0) return;
   const today = new Date();
-  const months = [0, 1].map(offset => {
+  // 정상: 당월+다음달. 2026년 6월 한정으로 8월(+2)까지 포함
+  const special = (today.getFullYear() === 2026 && today.getMonth() === 5) ? [2] : [];
+  const months = [0, 1, ...special].map(offset => {
     const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
   }).filter(({ y, m }) => y > MIN_YEAR || (y === MIN_YEAR && m >= MIN_MONTH));
@@ -963,7 +939,7 @@ async function autoInitMissingMonths(branch) {
         }
       } else {
         // Firebase 비어있음 → 전체 자동 생성
-        const sched = buildMonthSchedule(y, m);
+        const sched = buildMonthSchedule(y, m, getPrevOverflowOff(y, m));
         saveLs(y, m, sched);
         await fbSetBranch(y, m, branch, sched);
         _autoInitDone.add(key);
@@ -986,7 +962,8 @@ async function autoInitAllBranches() {
   _allBranchInitRunning = true;
   const branches = [...new Set(employees.map(e => e.branch))];
   const today = new Date();
-  const months = [0, 1].map(offset => {
+  const special = (today.getFullYear() === 2026 && today.getMonth() === 5) ? [2] : [];
+  const months = [0, 1, ...special].map(offset => {
     const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
   }).filter(({ y, m }) => y > MIN_YEAR || (y === MIN_YEAR && m >= MIN_MONTH));
@@ -1007,7 +984,7 @@ async function autoInitAllBranches() {
             _autoInitDone.add(key);
           }
         } else {
-          const sched = buildMonthSchedule(y, m);
+          const sched = buildMonthSchedule(y, m, getPrevOverflowOff(y, m));
           await fbSetBranch(y, m, branch, sched);
           _autoInitDone.add(key);
           generated++;
@@ -1064,7 +1041,6 @@ function attachFb(y, m) {
         }
         firstPoll = false;
       } else {
-        const branch = document.getElementById('branch-sel').value;
         if (employees.length > 0) {
           setFbStatus(null, '⏳ 근무표 자동 생성 중...');
           setStat('근무표 자동 생성 중...');
@@ -1217,39 +1193,6 @@ function calcStats() {
            turnover1m, turnover3m, avgMonths,
            tenureActiveCount, tenureExitedCount,
            currentCount: current.length };
-}
-
-/* ── 상시 근로자수 계산 (근로기준법 시행령: 연인원 ÷ 가동일수)
-   주7일 운영 사업장 기준: 연인원 = 실제 출근한 날의 합산 (휴무·연차·대휴 제외)
-   scheduleData: {branch||name: {off_days, day_types}} 형식 ── */
-function calcRegularWorkerCount(y, m, branch = null, scheduleData = null) {
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const seen = new Set();
-  const pool = [];
-  [...employees, ...resignedEmployees].forEach(e => {
-    if (branch && e.branch !== branch) return;
-    const k = `${e.branch}||${e.name}||${e.hire_date||''}`;
-    if (!seen.has(k)) { seen.add(k); pool.push(e); }
-  });
-  const OFF_TYPES = new Set(['휴무', '연차', '대휴']);
-  const HALF_TYPES = new Set(['오전반차', '오후반차']);
-  let total = 0;
-  for (let d = 1; d <= daysInMonth; d++) {
-    const ds = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    for (const e of pool) {
-      if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > ds) continue;
-      if (e.exit_date && e.exit_date.length >= 10 && e.exit_date < ds) continue;
-      const sd = scheduleData?.[`${e.branch}||${e.name}`];
-      if (sd) {
-        if ((sd.off_days || []).includes(d)) continue;
-        const dtype = sd.day_types?.[String(d)];
-        if (OFF_TYPES.has(dtype)) continue;
-        if (HALF_TYPES.has(dtype)) { total += 0.5; continue; }
-      }
-      total += 1;
-    }
-  }
-  return Math.round(total / daysInMonth * 10) / 10;
 }
 
 /* ── 지점 상세 모달 ── */
@@ -1543,14 +1486,22 @@ function renderSchedule() {
 }
 
 /* ── 월 스케줄 생성 (y년 m월) ── */
-function buildMonthSchedule(y, m) {
+function buildMonthSchedule(y, m, prevOverflowOff = null) {
   const daysInMonth = new Date(y, m, 0).getDate();
   const ROT_INTERVAL = 2;
   const FW5 = {0:0, 1:2, 2:2, 3:1, 4:0, 5:0, 6:0};
   const FW4 = {0:0, 1:3, 2:2, 3:1, 4:1, 5:0, 6:0};
 
+  // 월 경계 주 처리: firstMonday=이 달 첫 월요일, extraDays=마지막 주를 일요일까지 늘리는 날수
+  const firstDow = new Date(y, m-1, 1).getDay(); // 0=일,1=월,...,6=토
+  const lastDow  = new Date(y, m-1, daysInMonth).getDay();
+  const firstMonday = firstDow === 0 ? 2 : (firstDow === 1 ? 1 : (2 + 7 - firstDow));
+  const extraDays   = lastDow  === 0 ? 0 : (7 - lastDow);
+  const prefixDays  = firstMonday - 1; // 이전 달 마지막 주에서 넘어온 날수
+
   // ══ PHASE 1: 주 단위 휴무 배정 ══
   const branchLoad = {};  // 지점별 일별 출근 예정 인원
+  const mOffCnt = {};    // 지점별 날짜별 누적 휴무 수 (월 균등화용)
 
   const empData = [];
   employees.forEach(emp => {
@@ -1572,38 +1523,77 @@ function buildMonthSchedule(y, m) {
       if (ey === y && em === m) endDay = ed;
     }
 
+    // 월말까지 재직 중이면 다음달 초 넘침 날짜까지 출근 가능으로 확장
+    const extEndDay = (endDay === daysInMonth) ? daysInMonth + extraDays : endDay;
+
     const key = emp.branch + '||' + emp.name;
     const availDays = [];
     for (let d = startDay; d <= endDay; d++) availDays.push(d);
     if (!branchLoad[emp.branch]) {
       branchLoad[emp.branch] = {};
-      for (let d = 1; d <= daysInMonth; d++) branchLoad[emp.branch][d] = 0;
+      mOffCnt[emp.branch] = {};
+      for (let d = 1; d <= daysInMonth + extraDays; d++) { branchLoad[emp.branch][d] = 0; mOffCnt[emp.branch][d] = 0; }
     }
     availDays.forEach(d => branchLoad[emp.branch][d]++);
+    // 넘침 날짜 출근 인원도 반영
+    if (endDay === daysInMonth) {
+      for (let d = daysInMonth + 1; d <= daysInMonth + extraDays; d++) branchLoad[emp.branch][d]++;
+    }
 
     const slots = getSlots(storeHours);
     const hireDow = new Date(y, m-1, startDay).getDay();
     const isHireMonth = !!(emp.hire_date && emp.hire_date.length >= 10 &&
       (() => { const [hy, hm] = emp.hire_date.split('-').map(Number); return hy === y && hm === m; })());
-    empData.push({ key, emp, startDay, endDay, availDays, daysPerWeek, storeHours, slots, hireDow, isHireMonth });
+    empData.push({ key, emp, startDay, endDay, extEndDay, availDays, daysPerWeek, storeHours, slots, hireDow, isHireMonth });
   });
 
-  // 월~일 기준 주 목록 구성
+  // 월~일 기준 주 목록: firstMonday부터 시작, 마지막 주는 다음달 초까지 연장해 일요일 마감
   const weeks = [];
   let wd = [];
-  for (let d = 1; d <= daysInMonth; d++) {
+  for (let d = firstMonday; d <= daysInMonth + extraDays; d++) {
     wd.push(d);
-    if (new Date(y, m-1, d).getDay() === 0 || d === daysInMonth) { weeks.push([...wd]); wd = []; }
+    if (new Date(y, m-1, d).getDay() === 0) { weeks.push([...wd]); wd = []; }
   }
+  if (wd.length > 0) weeks.push([...wd]);
 
   const offMap = {};
   empData.forEach(({ key }) => offMap[key] = new Set());
+  // 이전 달 마지막 주에서 넘어온 이 달 초 휴무일 선반영 (prefixDays > 0인 경우)
+  if (prevOverflowOff && prefixDays > 0) {
+    Object.entries(prevOverflowOff).forEach(([k, days]) => {
+      if (offMap[k]) days.forEach(d => offMap[k].add(d));
+    });
+  }
 
-  // ══ PHASE 1: 주 단위 휴무 배정 — 부하 균등화 우선, 연속 쌍 되도록 우선 ══
+  // ══ PHASE 1: 주 단위 휴무 배정 ══
+  // 우선순위: ①수요일 전원출근 ②일별 출근 편차 최소화 ③연속근무≤5(부득이시≤6) ④연속휴무≤3 ⑤휴무쌍 연속
+  //
+  // 핵심 전략: 지점 직원을 3그룹으로 나눠 월화/목금/토일 궤도 고정 배정
+  //   → 각 그룹이 매주 같은 요일에 쉬므로 날별 출근 편차가 자동으로 균등화
+  //   → 3개 궤도 모두 최대 연속근무 5일 이하 (수요일 포함해도 ≤5)
+  const empTraj = {}; // key → 0:월화, 1:목금, 2:토일
+  const bEmpsByBranch = {};
+  empData.forEach(({ key, emp }) => {
+    (bEmpsByBranch[emp.branch] = bEmpsByBranch[emp.branch] || []).push({ key, belt: emp.belt||'화이트', name: emp.name });
+  });
+  const bIdxT = b => { const i = BELT_ORDER.indexOf(b); return i >= 0 ? i : 8; };
+  Object.values(bEmpsByBranch).forEach(arr => {
+    arr.sort((a, b) => bIdxT(a.belt) - bIdxT(b.belt) || a.name.localeCompare(b.name));
+    arr.forEach(({ key }, i) => { empTraj[key] = i % 3; });
+  });
+  // 궤도별 선호 요일 쌍 (JS getDay: 0=일,1=월,2=화,3=수,4=목,5=금,6=토)
+  const TRAJ_DOWS = [[1,2],[4,5],[6,0]]; // [월화, 목금, 토일]
+  const findTrajPair = (traj, wDays, cSet) => {
+    const [d1d, d2d] = TRAJ_DOWS[traj];
+    const d1 = wDays.find(d => new Date(y,m-1,d).getDay()===d1d && cSet.has(d));
+    const d2 = wDays.find(d => new Date(y,m-1,d).getDay()===d2d && cSet.has(d));
+    return (d1 && d2) ? [d1,d2] : null;
+  };
+
   weeks.forEach(wDays => {
     const wEmp = [];
-    empData.forEach(({ key, emp, startDay, endDay, daysPerWeek, hireDow, isHireMonth }) => {
-      const available = wDays.filter(d => d >= startDay && d <= endDay);
+    empData.forEach(({ key, emp, startDay, endDay, extEndDay, daysPerWeek, hireDow, isHireMonth }) => {
+      const available = wDays.filter(d => d >= startDay && d <= extEndDay);
       if (!available.length) return;
       const offPerWeek = 7 - daysPerWeek;
       const isHireWeek = isHireMonth && startDay >= wDays[0] && startDay <= wDays[wDays.length - 1];
@@ -1620,66 +1610,56 @@ function buildMonthSchedule(y, m) {
     wEmp.forEach(({ key, available, nOff, startDay, endDay, isHireMonth, branch }) => {
       if (!nOff) return;
       const noOff = isHireMonth ? new Set([startDay, startDay+1, startDay+2]) : new Set();
-      // 퇴사 당일은 반드시 근무 — 이번 달 퇴사자(endDay < 월말)만 적용
       if (endDay < daysInMonth) noOff.add(endDay);
-      // 매주 수요일은 전체 출근일 — 휴무 배정 불가
       available.filter(d => new Date(y, m-1, d).getDay() === 3).forEach(d => noOff.add(d));
       const candidates = available.filter(d => !noOff.has(d));
-      // 지점 내 출근 인원이 많은 날부터 휴무 배정 → 출근 인원 평균화, 동점은 무작위
-      // 휴무 2일은 되도록 연속 배정 — nOff=1인 부분 주도 포함해서 연속 쌍 우선 탐색
       const load = branchLoad[branch] || {};
       const sortedC = [...candidates].sort((a, b) => (load[b] - load[a]) || (Math.random() - 0.5));
-      // 기존 휴무 + 새 날짜 추가 시 최대 연속 휴무 일수 계산 (4일 연속 방지용)
+      const moc = mOffCnt[branch] || {};
       const maxRun = days => {
         const all = new Set([...offMap[key], ...days]);
         let mx = 0;
         for (const d of all) {
-          if (!all.has(d - 1)) { let r = 0; while (all.has(d + r)) r++; if (r > mx) mx = r; }
+          if (!all.has(d-1)) { let r = 0; while (all.has(d+r)) r++; if (r > mx) mx = r; }
         }
         return mx;
       };
-      // 기존 휴무 + 새 날짜 추가 시 최대 연속 근무 일수 계산 (6일 초과 방지용)
-      const maxWorkRun = days => {
-        const allOff = new Set([...offMap[key], ...days]);
-        const checkTo = wDays[wDays.length - 1];
-        let mx = 0, d = startDay;
-        while (d <= checkTo) {
-          if (!allOff.has(d)) {
-            let r = 0;
-            while (d + r <= checkTo && !allOff.has(d + r)) r++;
-            if (r > mx) mx = r;
-            d += r;
-          } else {
-            d++;
-          }
-        }
-        return mx;
-      };
+      // 역방향 연속근무 제약: 이전 주 말미 연속근무 + 이번 주 쌍 시작 전 근무 ≤ 6
+      let prevTrailing = 0;
+      for (let d = wDays[0]-1; d >= startDay && !offMap[key].has(d); d--) prevTrailing++;
+      const okLeading = d => (prevTrailing + (d - wDays[0])) <= 6;
+      const cSet = new Set(candidates);
       let picked = [];
       if (nOff >= 2 && candidates.length >= 2) {
-        const cSet = new Set(candidates);
-        const pairs = candidates
-          .filter(d => cSet.has(d + 1))
-          .map(d => [d, d + 1])
-          .filter(pair => maxRun(pair) < 4 && maxWorkRun(pair) <= 6)
-          .sort((p1, p2) => ((load[p2[0]]||0) + (load[p2[1]]||0)) - ((load[p1[0]]||0) + (load[p1[1]]||0)) || (Math.random() - 0.5));
-        if (pairs.length > 0) {
-          picked = [...pairs[0]];
+        // ① 궤도 선호 쌍 (okLeading·maxRun 통과 시) — 일별 균등화 핵심
+        let pair = findTrajPair(empTraj[key], wDays, cSet);
+        if (pair && (maxRun(pair) >= 4 || !okLeading(pair[0]))) pair = null;
+        if (!pair) {
+          // ② mOffCnt 기반 균등화 (okLeading 하드 필터, 최대연속≤6 보장)
+          const pairs = candidates
+            .filter(d => cSet.has(d+1))
+            .map(d => [d, d+1])
+            .filter(p => maxRun(p) < 4 && okLeading(p[0]))
+            .sort((p1,p2) => ((moc[p1[0]]||0)+(moc[p1[1]]||0)) - ((moc[p2[0]]||0)+(moc[p2[1]]||0)));
+          pair = pairs.length > 0 ? pairs[0] : null;
+        }
+        if (pair) {
+          picked = [...pair];
           if (nOff > 2) {
             const rem = sortedC.filter(d => !picked.includes(d));
-            picked = picked.concat(rem.slice(0, nOff - 2));
+            picked = picked.concat(rem.slice(0, nOff-2));
           }
         } else {
-          let safe = sortedC.filter(d => maxRun([d]) < 4 && maxWorkRun([d]) <= 6);
+          let safe = sortedC.filter(d => maxRun([d]) < 4 && okLeading(d));
           if (!safe.length) safe = sortedC.filter(d => maxRun([d]) < 4);
           picked = (safe.length ? safe : sortedC).slice(0, Math.min(nOff, candidates.length));
         }
       } else {
-        let safe = sortedC.filter(d => maxRun([d]) < 4 && maxWorkRun([d]) <= 6);
+        let safe = sortedC.filter(d => maxRun([d]) < 4 && okLeading(d));
         if (!safe.length) safe = sortedC.filter(d => maxRun([d]) < 4);
         picked = (safe.length ? safe : sortedC).slice(0, Math.min(nOff, candidates.length));
       }
-      picked.forEach(d => { offMap[key].add(d); if (branchLoad[branch]) branchLoad[branch][d]--; });
+      picked.forEach(d => { offMap[key].add(d); if (branchLoad[branch]) branchLoad[branch][d]--; mOffCnt[branch][d]++; });
     });
   });
 
@@ -1715,6 +1695,15 @@ function buildMonthSchedule(y, m) {
   }
 
   // ══ schData 구성 ══
+  // 다음달 초 넘침 휴무 수집 (다음달 buildMonthSchedule에 prevOverflowOff로 전달)
+  const overflowOff = {};
+  if (extraDays > 0) {
+    empData.forEach(({ key }) => {
+      const over = [...offMap[key]].filter(d => d > daysInMonth).map(d => d - daysInMonth);
+      if (over.length > 0) overflowOff[key] = over;
+    });
+  }
+
   const result = {};
   empData.forEach(({ key, emp, storeHours, slots }) => {
     result[key] = {
@@ -1724,18 +1713,28 @@ function buildMonthSchedule(y, m) {
       shift_base_offset: baseOffsetMap[key] || 0,
       rotation_interval: ROT_INTERVAL,
       shift_starts: startsByKeyDay[key] || {},
-      off_days: [...offMap[key]].sort((a, b) => a - b),
+      off_days: [...offMap[key]].filter(d => d <= daysInMonth).sort((a, b) => a - b),
       day_types: {}
     };
   });
+  if (Object.keys(overflowOff).length > 0) result.__overflow = overflowOff;
   return result;
 }
 
-/* ── 이달+2개월 초기화 ── */
-function addMonth(y, m, n) {
-  const d = new Date(y, m - 1 + n, 1);
-  return [d.getFullYear(), d.getMonth() + 1];
+// 이전 달 마지막 주 넘침 휴무를 로컬스토리지에서 읽어 반환
+function getPrevOverflowOff(y, m) {
+  const fDow = new Date(y, m-1, 1).getDay();
+  const fMon = fDow === 0 ? 2 : (fDow === 1 ? 1 : (2 + 7 - fDow));
+  if (fMon <= 1) return null; // 이 달이 월요일 시작이면 넘침 없음
+  const py = m === 1 ? y - 1 : y;
+  const pm = m === 1 ? 12 : m - 1;
+  const prev = loadLs(py, pm);
+  if (!prev || !prev.__overflow) return null;
+  const r = {};
+  Object.entries(prev.__overflow).forEach(([k, days]) => { r[k] = new Set(days); });
+  return r;
 }
+
 function initMonth() {
   const branch = document.getElementById('branch-sel').value;
   if (!branch) { alert('지점을 선택한 후 초기화해 주세요.'); return; }
@@ -1743,7 +1742,7 @@ function initMonth() {
   if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
 
   // 당월만 초기화
-  schData = buildMonthSchedule(curY, curM);
+  schData = buildMonthSchedule(curY, curM, getPrevOverflowOff(curY, curM));
   saveLs(curY, curM, schData);
   clearTimeout(_saveTimer); dirty = false; _saving = false; _pendingSave = false;
   buildTable();
@@ -1846,10 +1845,7 @@ function mkEntry(emp) {
 function buildTable() {
   const branch = document.getElementById('branch-sel').value;
   const isReadOnly = !branch || _viewerMode;
-  // 읽기 전용 안내 표시
-  const notice = document.getElementById('readonly-notice');
   const initBtn = document.getElementById('btn-init');
-  if (notice) notice.style.display = isReadOnly ? 'inline' : 'none';
   if (initBtn) initBtn.style.display = isReadOnly ? 'none' : '';
   const fbStatus = document.getElementById('fb-status');
   const editHint = document.getElementById('edit-hint');
@@ -1890,10 +1886,11 @@ function buildTable() {
     const [hy, hm] = e.hire_date.split('-').map(Number);
     return !(hy > curY || (hy === curY && hm > curM));
   });
+  const bIdx2 = e => { const i = BELT_ORDER.indexOf(e.belt); return i >= 0 ? i : 8; };
   emps.sort((a,b) => {
     const ba=parseInt(a.branch)||999, bb=parseInt(b.branch)||999;
     if (ba!==bb) return ba-bb;
-    return (BELT_ORDER.indexOf(a.belt)??8)-(BELT_ORDER.indexOf(b.belt)??8);
+    return bIdx2(a) - bIdx2(b);
   });
 
   let hd = '<tr><th class="th-name">직원</th><th class="th-shift">근무시간</th>';
@@ -1994,7 +1991,7 @@ function buildTable() {
         <span class="belt-badge" style="background:${bS.bg};color:${bS.fg}">${belt}</span>
         ${isReadOnly ? `<span class="emp-name-btn" style="cursor:default">${empTag}</span>` : `<button class="emp-name-btn" onclick="openModal('${key}')">${empTag}</button>`}
       </div></td>
-      <td class="td-shift">${slotsText}<br><span style="color:#aaa;font-size:9px">(${hours}h상주)</span></td>
+      <td class="td-shift">${slotsText}<br><span style="color:#aaa;font-size:9px">${hours===11?'(11h 30m)':'('+hours+'h상주)'}</span></td>
       ${cells}
       <td class="cnt-work">${workCnt}</td>
       <td class="cnt-off">${offCnt}</td>
@@ -2002,7 +1999,6 @@ function buildTable() {
   });
   document.getElementById('sch-body').innerHTML = body;
 
-  document.getElementById('sch-regular-worker').style.display = 'none';
 }
 
 /* ── Day Status Modal ── */
@@ -2072,34 +2068,6 @@ function saveDayModal() {
 function closeDayModal() {
   document.getElementById('day-modal').classList.remove('open');
   dmKey = null; dmDay = null; dmType = null;
-}
-
-function toggle(key, day) {
-  if (!schData[key]) {
-    const emp = employees.find(e => e.branch+'||'+e.name===key);
-    schData[key] = mkEntry(emp || {name:'',branch:'',belt:'화이트',hire_date:''});
-  }
-  const sd = schData[key];
-  if (!sd.day_types) sd.day_types = {};
-  if (!sd.off_days)  sd.off_days  = [];
-  const cur = sd.day_types[String(day)] || (sd.off_days.includes(day) ? '휴무' : null);
-  const idx = DAY_TYPES_CYCLE.indexOf(cur);
-  if (idx === DAY_TYPES_CYCLE.length - 1) {
-    // 대휴 → 근무
-    delete sd.day_types[String(day)];
-    const oi = sd.off_days.indexOf(day);
-    if (oi >= 0) sd.off_days.splice(oi, 1);
-  } else if (idx >= 0) {
-    // 다음 타입으로 순환
-    sd.day_types[String(day)] = DAY_TYPES_CYCLE[idx + 1];
-    if (!sd.off_days.includes(day)) sd.off_days.push(day);
-  } else {
-    // 근무 → 휴무
-    sd.day_types[String(day)] = '휴무';
-    if (!sd.off_days.includes(day)) sd.off_days.push(day);
-  }
-  buildTable();
-  scheduleAutoSave();
 }
 
 /* ── Shift Modal ── */
@@ -2256,7 +2224,6 @@ function showPeopleList(type) {
   document.getElementById('people-modal').classList.add('open');
 }
 
-/* ── 엑셀 다운로드 ── */
 /* ── 엑셀 다운로드 모달 ── */
 function openExcelModal() {
   const branchSel = document.getElementById('xl-branch');
@@ -2471,10 +2438,11 @@ async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb, empList
     }
     return true;
   });
+  const bIdx2 = e => { const i = BELT_ORDER.indexOf(e.belt); return i >= 0 ? i : 8; };
   emps.sort((a,b) => {
     const ba=parseInt(a.branch)||999, bb=parseInt(b.branch)||999;
     if (ba!==bb) return ba-bb;
-    return (BELT_ORDER.indexOf(a.belt)??8)-(BELT_ORDER.indexOf(b.belt)??8);
+    return bIdx2(a) - bIdx2(b);
   });
 
   const ws = wb.addWorksheet(`${dlY}년${dlM}월`);
