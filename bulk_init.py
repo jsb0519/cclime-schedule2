@@ -252,7 +252,7 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
     for arr in b_emps_by_branch.values():
         arr.sort(key=lambda e: (belt_idx(e['emp'].get('belt','화이트')), e['emp']['name']))
         for i, ed in enumerate(arr):
-            emp_traj[ed['key']] = i % 3
+            emp_traj[ed['key']] = (i + m) % 3
 
     # 날짜 d (넘침 가능)의 요일 계산 헬퍼 (Python weekday: 0=월,...,6=일)
     def day_weekday(d):

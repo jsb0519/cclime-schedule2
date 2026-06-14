@@ -1579,7 +1579,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   const bIdxT = b => { const i = BELT_ORDER.indexOf(b); return i >= 0 ? i : 8; };
   Object.values(bEmpsByBranch).forEach(arr => {
     arr.sort((a, b) => bIdxT(a.belt) - bIdxT(b.belt) || a.name.localeCompare(b.name));
-    arr.forEach(({ key }, i) => { empTraj[key] = i % 3; });
+    arr.forEach(({ key }, i) => { empTraj[key] = (i + m) % 3; });
   });
   // 궤도별 선호 요일 쌍 (JS getDay: 0=일,1=월,2=화,3=수,4=목,5=금,6=토)
   const TRAJ_DOWS = [[1,2],[4,5],[6,0]]; // [월화, 목금, 토일]
