@@ -244,7 +244,7 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
     # 궤도 배정: 지점별 직원을 0=월화, 1=목금, 2=토일 그룹으로 균등 분배
     # Python weekday(): 0=월,1=화,2=수,3=목,4=금,5=토,6=일
     TRAJ_WDAYS = [(0,1),(3,4),(5,6)]  # [(월화),(목금),(토일)]
-    emp_traj = {}
+    emp_base_idx = {}  # key → 지점 내 정렬 순번 (주별 궤도 계산용)
     b_emps_by_branch = {}
     for ed in emp_data:
         br = ed['emp']['branch']
@@ -252,7 +252,7 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
     for arr in b_emps_by_branch.values():
         arr.sort(key=lambda e: (belt_idx(e['emp'].get('belt','화이트')), e['emp']['name']))
         for i, ed in enumerate(arr):
-            emp_traj[ed['key']] = (i + m) % 3
+            emp_base_idx[ed['key']] = i
 
     # 날짜 d (넘침 가능)의 요일 계산 헬퍼 (Python weekday: 0=월,...,6=일)
     def day_weekday(d):
@@ -264,7 +264,7 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
         d2 = next((d for d in w_days if day_weekday(d)==wd2 and d in c_set), None)
         return [d1,d2] if d1 and d2 else None
 
-    for w_days in weeks:
+    for week_idx, w_days in enumerate(weeks):
         w_emp = []
         for ed in emp_data:
             available = [d for d in w_days if ed['start_day']<=d<=ed['ext_end_day']]
@@ -327,7 +327,8 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
             picked = []
             if n_off >= 2 and len(candidates) >= 2:
                 # ① 궤도 선호 쌍 (okLeading·maxRun 통과 시)
-                pair = find_traj_pair(emp_traj.get(we['key'],0), w_days, c_set)
+                traj = (emp_base_idx.get(we['key'], 0) + m + week_idx) % 3
+                pair = find_traj_pair(traj, w_days, c_set)
                 if pair and (max_run(pair) >= 4 or not ok_leading(pair[0])):
                     pair = None
                 if not pair:

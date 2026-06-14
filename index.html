@@ -1571,7 +1571,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   // 핵심 전략: 지점 직원을 3그룹으로 나눠 월화/목금/토일 궤도 고정 배정
   //   → 각 그룹이 매주 같은 요일에 쉬므로 날별 출근 편차가 자동으로 균등화
   //   → 3개 궤도 모두 최대 연속근무 5일 이하 (수요일 포함해도 ≤5)
-  const empTraj = {}; // key → 0:월화, 1:목금, 2:토일
+  const empBaseIdx = {}; // key → 지점 내 정렬 순번 (주별 궤도 계산용)
   const bEmpsByBranch = {};
   empData.forEach(({ key, emp }) => {
     (bEmpsByBranch[emp.branch] = bEmpsByBranch[emp.branch] || []).push({ key, belt: emp.belt||'화이트', name: emp.name });
@@ -1579,7 +1579,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   const bIdxT = b => { const i = BELT_ORDER.indexOf(b); return i >= 0 ? i : 8; };
   Object.values(bEmpsByBranch).forEach(arr => {
     arr.sort((a, b) => bIdxT(a.belt) - bIdxT(b.belt) || a.name.localeCompare(b.name));
-    arr.forEach(({ key }, i) => { empTraj[key] = (i + m) % 3; });
+    arr.forEach(({ key }, i) => { empBaseIdx[key] = i; });
   });
   // 궤도별 선호 요일 쌍 (JS getDay: 0=일,1=월,2=화,3=수,4=목,5=금,6=토)
   const TRAJ_DOWS = [[1,2],[4,5],[6,0]]; // [월화, 목금, 토일]
@@ -1590,7 +1590,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
     return (d1 && d2) ? [d1,d2] : null;
   };
 
-  weeks.forEach(wDays => {
+  weeks.forEach((wDays, weekIdx) => {
     const wEmp = [];
     empData.forEach(({ key, emp, startDay, endDay, extEndDay, daysPerWeek, hireDow, isHireMonth }) => {
       const available = wDays.filter(d => d >= startDay && d <= extEndDay);
@@ -1636,7 +1636,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
       let picked = [];
       if (nOff >= 2 && candidates.length >= 2) {
         // ① 궤도 선호 쌍 (okLeading·maxRun 통과 시) — 일별 균등화 핵심
-        let pair = findTrajPair(empTraj[key], wDays, cSet);
+        let pair = findTrajPair((empBaseIdx[key] + m + weekIdx) % 3, wDays, cSet);
         if (pair && (maxRun(pair) >= 4 || !okLeading(pair[0]))) pair = null;
         if (!pair) {
           // ② mOffCnt 기반 균등화 (okLeading 하드 필터, 최대연속≤6 보장)
