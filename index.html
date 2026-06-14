@@ -1914,7 +1914,7 @@ function buildTable() {
         <span class="belt-badge" style="background:${bS.bg};color:${bS.fg}">${belt}</span>
         ${isReadOnly ? `<span class="emp-name-btn" style="cursor:default">${empTag}</span>` : `<button class="emp-name-btn" onclick="openModal('${key}')">${empTag}</button>`}
       </div></td>
-      <td class="td-shift">${slotsText}<br><span style="color:#aaa;font-size:9px">(${hours-1}시간 30분)</span></td>
+      <td class="td-shift">${slotsText}<br><span style="color:#aaa;font-size:9px">${hours-1===11?'(11h 30m)':'('+(hours-1)+'h상주)'}</span></td>
       ${cells}
       <td class="cnt-work">${workCnt}</td>
       <td class="cnt-off">${offCnt}</td>
