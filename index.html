@@ -1540,7 +1540,31 @@ function buildMonthSchedule(y, m) {
   const offMap = {};
   empData.forEach(({ key }) => offMap[key] = new Set());
 
-  // ══ PHASE 1: 주 단위 휴무 배정 — 월별 균등화 우선, 연속 쌍 되도록 우선 ══
+  // ══ PHASE 1: 주 단위 휴무 배정 ══
+  // 우선순위: ①수요일 전원출근 ②일별 출근 편차 최소화 ③연속근무≤5(부득이시≤6) ④연속휴무≤3 ⑤휴무쌍 연속
+  //
+  // 핵심 전략: 지점 직원을 3그룹으로 나눠 월화/목금/토일 궤도 고정 배정
+  //   → 각 그룹이 매주 같은 요일에 쉬므로 날별 출근 편차가 자동으로 균등화
+  //   → 3개 궤도 모두 최대 연속근무 5일 이하 (수요일 포함해도 ≤5)
+  const empTraj = {}; // key → 0:월화, 1:목금, 2:토일
+  const bEmpsByBranch = {};
+  empData.forEach(({ key, emp }) => {
+    (bEmpsByBranch[emp.branch] = bEmpsByBranch[emp.branch] || []).push({ key, belt: emp.belt||'화이트', name: emp.name });
+  });
+  const bIdxT = b => { const i = BELT_ORDER.indexOf(b); return i >= 0 ? i : 8; };
+  Object.values(bEmpsByBranch).forEach(arr => {
+    arr.sort((a, b) => bIdxT(a.belt) - bIdxT(b.belt) || a.name.localeCompare(b.name));
+    arr.forEach(({ key }, i) => { empTraj[key] = i % 3; });
+  });
+  // 궤도별 선호 요일 쌍 (JS getDay: 0=일,1=월,2=화,3=수,4=목,5=금,6=토)
+  const TRAJ_DOWS = [[1,2],[4,5],[6,0]]; // [월화, 목금, 토일]
+  const findTrajPair = (traj, wDays, cSet) => {
+    const [d1d, d2d] = TRAJ_DOWS[traj];
+    const d1 = wDays.find(d => new Date(y,m-1,d).getDay()===d1d && cSet.has(d));
+    const d2 = wDays.find(d => new Date(y,m-1,d).getDay()===d2d && cSet.has(d));
+    return (d1 && d2) ? [d1,d2] : null;
+  };
+
   weeks.forEach(wDays => {
     const wEmp = [];
     empData.forEach(({ key, emp, startDay, endDay, daysPerWeek, hireDow, isHireMonth }) => {
@@ -1558,55 +1582,47 @@ function buildMonthSchedule(y, m) {
       wEmp.push({ key, available, nOff, startDay, endDay, isHireMonth, branch: emp.branch });
     });
     wEmp.sort((a, b) => (b.nOff - a.nOff) || (Math.random() - 0.5));
-    // 이번 주 지점별 인원 수 — okPenalty 계산용
-    const weekBranchSize = {};
-    wEmp.forEach(({ branch }) => { weekBranchSize[branch] = (weekBranchSize[branch] || 0) + 1; });
     wEmp.forEach(({ key, available, nOff, startDay, endDay, isHireMonth, branch }) => {
       if (!nOff) return;
       const noOff = isHireMonth ? new Set([startDay, startDay+1, startDay+2]) : new Set();
-      // 퇴사 당일은 반드시 근무 — 이번 달 퇴사자(endDay < 월말)만 적용
       if (endDay < daysInMonth) noOff.add(endDay);
-      // 매주 수요일은 전체 출근일 — 휴무 배정 불가
       available.filter(d => new Date(y, m-1, d).getDay() === 3).forEach(d => noOff.add(d));
       const candidates = available.filter(d => !noOff.has(d));
-      // 지점 내 출근 인원이 많은 날부터 휴무 배정 → 출근 인원 평균화, 동점은 무작위
-      // 휴무 2일은 되도록 연속 배정 — nOff=1인 부분 주도 포함해서 연속 쌍 우선 탐색
       const load = branchLoad[branch] || {};
       const sortedC = [...candidates].sort((a, b) => (load[b] - load[a]) || (Math.random() - 0.5));
-      // 기존 휴무 + 새 날짜 추가 시 최대 연속 휴무 일수 계산 (4일 연속 방지용)
+      const moc = mOffCnt[branch] || {};
       const maxRun = days => {
         const all = new Set([...offMap[key], ...days]);
         let mx = 0;
         for (const d of all) {
-          if (!all.has(d - 1)) { let r = 0; while (all.has(d + r)) r++; if (r > mx) mx = r; }
+          if (!all.has(d-1)) { let r = 0; while (all.has(d+r)) r++; if (r > mx) mx = r; }
         }
         return mx;
       };
-      // 이전 주 말미의 연속 근무일 수 (이미 확정된 데이터 기반 — 역방향 제약)
+      // 역방향 연속근무 제약: 이전 주 말미 연속근무 + 이번 주 쌍 시작 전 근무 ≤ 6
       let prevTrailing = 0;
-      for (let d = wDays[0] - 1; d >= startDay && !offMap[key].has(d); d--) prevTrailing++;
-      // 이번 주 후반부 연속 근무 제약: 이전 주 끝 연속근무 + 이번 주 쌍 직전 근무 ≤ 6
+      for (let d = wDays[0]-1; d >= startDay && !offMap[key].has(d); d--) prevTrailing++;
       const okLeading = d => (prevTrailing + (d - wDays[0])) <= 6;
-      // 월별 누적 휴무 수 기반 페어 우선순위 — okLeading은 소프트 페널티로
-      const moc = mOffCnt[branch] || {};
-      const okPen = Math.ceil((weekBranchSize[branch] || 1) * 2 / 7) + 1;
+      const cSet = new Set(candidates);
       let picked = [];
       if (nOff >= 2 && candidates.length >= 2) {
-        const cSet = new Set(candidates);
-        const pairs = candidates
-          .filter(d => cSet.has(d + 1))
-          .map(d => [d, d + 1])
-          .filter(pair => maxRun(pair) < 4)
-          .sort((p1, p2) => {
-            const s1 = (moc[p1[0]]||0) + (moc[p1[1]]||0) + (okLeading(p1[0]) ? 0 : okPen);
-            const s2 = (moc[p2[0]]||0) + (moc[p2[1]]||0) + (okLeading(p2[0]) ? 0 : okPen);
-            return s1 - s2;
-          });
-        if (pairs.length > 0) {
-          picked = [...pairs[0]];
+        // ① 궤도 선호 쌍 (okLeading·maxRun 통과 시) — 일별 균등화 핵심
+        let pair = findTrajPair(empTraj[key], wDays, cSet);
+        if (pair && (maxRun(pair) >= 4 || !okLeading(pair[0]))) pair = null;
+        if (!pair) {
+          // ② mOffCnt 기반 균등화 (okLeading 하드 필터, 최대연속≤6 보장)
+          const pairs = candidates
+            .filter(d => cSet.has(d+1))
+            .map(d => [d, d+1])
+            .filter(p => maxRun(p) < 4 && okLeading(p[0]))
+            .sort((p1,p2) => ((moc[p1[0]]||0)+(moc[p1[1]]||0)) - ((moc[p2[0]]||0)+(moc[p2[1]]||0)));
+          pair = pairs.length > 0 ? pairs[0] : null;
+        }
+        if (pair) {
+          picked = [...pair];
           if (nOff > 2) {
             const rem = sortedC.filter(d => !picked.includes(d));
-            picked = picked.concat(rem.slice(0, nOff - 2));
+            picked = picked.concat(rem.slice(0, nOff-2));
           }
         } else {
           let safe = sortedC.filter(d => maxRun([d]) < 4 && okLeading(d));

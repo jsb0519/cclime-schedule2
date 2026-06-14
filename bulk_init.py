@@ -211,6 +211,25 @@ def build_month_schedule(employees, y, m):
     off_map = {ed['key']:set() for ed in emp_data}
     m_off_cnt = {br:{d:0 for d in range(1,days_in_month+1)} for br in branch_load}
 
+    # 궤도 배정: 지점별 직원을 0=월화, 1=목금, 2=토일 그룹으로 균등 분배
+    # Python weekday(): 0=월,1=화,2=수,3=목,4=금,5=토,6=일
+    TRAJ_WDAYS = [(0,1),(3,4),(5,6)]  # [(월화),(목금),(토일)]
+    emp_traj = {}
+    b_emps_by_branch = {}
+    for ed in emp_data:
+        br = ed['emp']['branch']
+        b_emps_by_branch.setdefault(br,[]).append(ed)
+    for arr in b_emps_by_branch.values():
+        arr.sort(key=lambda e: (belt_idx(e['emp'].get('belt','화이트')), e['emp']['name']))
+        for i, ed in enumerate(arr):
+            emp_traj[ed['key']] = i % 3
+
+    def find_traj_pair(traj, w_days, c_set):
+        wd1, wd2 = TRAJ_WDAYS[traj]
+        d1 = next((d for d in w_days if date(y,m,d).weekday()==wd1 and d in c_set), None)
+        d2 = next((d for d in w_days if date(y,m,d).weekday()==wd2 and d in c_set), None)
+        return [d1,d2] if d1 and d2 else None
+
     for w_days in weeks:
         w_emp = []
         for ed in emp_data:
@@ -230,9 +249,6 @@ def build_month_schedule(employees, y, m):
                           'is_hire_month':ed['is_hire_month'],'branch':ed['emp']['branch']})
 
         w_emp.sort(key=lambda x: (-x['n_off'], random.random()))
-        week_branch_size = {}
-        for we0 in w_emp:
-            week_branch_size[we0['branch']] = week_branch_size.get(we0['branch'],0) + 1
 
         for we in w_emp:
             if not we['n_off']: continue
@@ -248,6 +264,8 @@ def build_month_schedule(employees, y, m):
             load = branch_load.get(we['branch'], {})
             n_off = we['n_off']
             candidates.sort(key=lambda d: (-load.get(d,0), random.random()))
+            moc = m_off_cnt.get(we['branch'], {})
+
             def max_run(new_days):
                 all_off = off_map[we['key']] | set(new_days)
                 mx = 0
@@ -257,25 +275,31 @@ def build_month_schedule(employees, y, m):
                         while (d+r) in all_off: r += 1
                         if r > mx: mx = r
                 return mx
-            # 이전 주 말미 연속근무일 수 (역방향 제약 — 미래 주 미배정 문제 없음)
+
             prev_trailing = 0
             d = w_days[0] - 1
             while d >= we['start_day'] and d not in off_map[we['key']]:
                 prev_trailing += 1
                 d -= 1
+
             def ok_leading(first_day):
                 return (prev_trailing + (first_day - w_days[0])) <= 6
-            moc = m_off_cnt.get(we['branch'], {})
-            ok_pen = math.ceil(week_branch_size.get(we['branch'],1) * 2 / 7) + 1
-            def pair_score(p):
-                return moc.get(p[0],0) + moc.get(p[1],0) + (0 if ok_leading(p[0]) else ok_pen)
+
+            c_set = set(candidates)
             picked = []
             if n_off >= 2 and len(candidates) >= 2:
-                c_set = set(candidates)
-                pairs = [[d, d+1] for d in candidates if (d+1) in c_set and max_run([d, d+1]) < 4]
-                pairs.sort(key=pair_score)
-                if pairs:
-                    picked = list(pairs[0])
+                # ① 궤도 선호 쌍 (okLeading·maxRun 통과 시)
+                pair = find_traj_pair(emp_traj.get(we['key'],0), w_days, c_set)
+                if pair and (max_run(pair) >= 4 or not ok_leading(pair[0])):
+                    pair = None
+                if not pair:
+                    # ② mOffCnt 기반 균등화 (okLeading 하드 필터)
+                    pairs = [[d, d+1] for d in candidates
+                             if (d+1) in c_set and max_run([d,d+1]) < 4 and ok_leading(d)]
+                    pairs.sort(key=lambda p: moc.get(p[0],0)+moc.get(p[1],0))
+                    pair = pairs[0] if pairs else None
+                if pair:
+                    picked = list(pair)
                     if n_off > 2:
                         rem = [d for d in candidates if d not in picked]
                         picked += rem[:n_off-2]
@@ -289,6 +313,7 @@ def build_month_schedule(employees, y, m):
                 if not safe:
                     safe = [d for d in candidates if max_run([d]) < 4]
                 picked = (safe if safe else candidates)[:min(n_off, len(candidates))]
+
             for d in picked:
                 off_map[we['key']].add(d)
                 branch_load[we['branch']][d] -= 1
