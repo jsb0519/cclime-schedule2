@@ -1490,6 +1490,7 @@ function buildMonthSchedule(y, m) {
 
   // ══ PHASE 1: 주 단위 휴무 배정 ══
   const branchLoad = {};  // 지점별 일별 출근 예정 인원
+  const mOffCnt = {};    // 지점별 날짜별 누적 휴무 수 (월 균등화용)
 
   const empData = [];
   employees.forEach(emp => {
@@ -1516,7 +1517,8 @@ function buildMonthSchedule(y, m) {
     for (let d = startDay; d <= endDay; d++) availDays.push(d);
     if (!branchLoad[emp.branch]) {
       branchLoad[emp.branch] = {};
-      for (let d = 1; d <= daysInMonth; d++) branchLoad[emp.branch][d] = 0;
+      mOffCnt[emp.branch] = {};
+      for (let d = 1; d <= daysInMonth; d++) { branchLoad[emp.branch][d] = 0; mOffCnt[emp.branch][d] = 0; }
     }
     availDays.forEach(d => branchLoad[emp.branch][d]++);
 
@@ -1538,7 +1540,7 @@ function buildMonthSchedule(y, m) {
   const offMap = {};
   empData.forEach(({ key }) => offMap[key] = new Set());
 
-  // ══ PHASE 1: 주 단위 휴무 배정 — 부하 균등화 우선, 연속 쌍 되도록 우선 ══
+  // ══ PHASE 1: 주 단위 휴무 배정 — 월별 균등화 우선, 연속 쌍 되도록 우선 ══
   weeks.forEach(wDays => {
     const wEmp = [];
     empData.forEach(({ key, emp, startDay, endDay, daysPerWeek, hireDow, isHireMonth }) => {
@@ -1556,6 +1558,9 @@ function buildMonthSchedule(y, m) {
       wEmp.push({ key, available, nOff, startDay, endDay, isHireMonth, branch: emp.branch });
     });
     wEmp.sort((a, b) => (b.nOff - a.nOff) || (Math.random() - 0.5));
+    // 이번 주 지점별 인원 수 — okPenalty 계산용
+    const weekBranchSize = {};
+    wEmp.forEach(({ branch }) => { weekBranchSize[branch] = (weekBranchSize[branch] || 0) + 1; });
     wEmp.forEach(({ key, available, nOff, startDay, endDay, isHireMonth, branch }) => {
       if (!nOff) return;
       const noOff = isHireMonth ? new Set([startDay, startDay+1, startDay+2]) : new Set();
@@ -1582,14 +1587,21 @@ function buildMonthSchedule(y, m) {
       for (let d = wDays[0] - 1; d >= startDay && !offMap[key].has(d); d--) prevTrailing++;
       // 이번 주 후반부 연속 근무 제약: 이전 주 끝 연속근무 + 이번 주 쌍 직전 근무 ≤ 6
       const okLeading = d => (prevTrailing + (d - wDays[0])) <= 6;
+      // 월별 누적 휴무 수 기반 페어 우선순위 — okLeading은 소프트 페널티로
+      const moc = mOffCnt[branch] || {};
+      const okPen = Math.ceil((weekBranchSize[branch] || 1) * 2 / 7) + 1;
       let picked = [];
       if (nOff >= 2 && candidates.length >= 2) {
         const cSet = new Set(candidates);
         const pairs = candidates
           .filter(d => cSet.has(d + 1))
           .map(d => [d, d + 1])
-          .filter(pair => maxRun(pair) < 4 && okLeading(pair[0]))
-          .sort((p1, p2) => ((load[p2[0]]||0) + (load[p2[1]]||0)) - ((load[p1[0]]||0) + (load[p1[1]]||0)) || (Math.random() - 0.5));
+          .filter(pair => maxRun(pair) < 4)
+          .sort((p1, p2) => {
+            const s1 = (moc[p1[0]]||0) + (moc[p1[1]]||0) + (okLeading(p1[0]) ? 0 : okPen);
+            const s2 = (moc[p2[0]]||0) + (moc[p2[1]]||0) + (okLeading(p2[0]) ? 0 : okPen);
+            return s1 - s2;
+          });
         if (pairs.length > 0) {
           picked = [...pairs[0]];
           if (nOff > 2) {
@@ -1606,7 +1618,7 @@ function buildMonthSchedule(y, m) {
         if (!safe.length) safe = sortedC.filter(d => maxRun([d]) < 4);
         picked = (safe.length ? safe : sortedC).slice(0, Math.min(nOff, candidates.length));
       }
-      picked.forEach(d => { offMap[key].add(d); if (branchLoad[branch]) branchLoad[branch][d]--; });
+      picked.forEach(d => { offMap[key].add(d); if (branchLoad[branch]) branchLoad[branch][d]--; mOffCnt[branch][d]++; });
     });
   });
 

@@ -209,6 +209,7 @@ def build_month_schedule(employees, y, m):
             weeks.append(list(wd)); wd=[]
 
     off_map = {ed['key']:set() for ed in emp_data}
+    m_off_cnt = {br:{d:0 for d in range(1,days_in_month+1)} for br in branch_load}
 
     for w_days in weeks:
         w_emp = []
@@ -229,6 +230,9 @@ def build_month_schedule(employees, y, m):
                           'is_hire_month':ed['is_hire_month'],'branch':ed['emp']['branch']})
 
         w_emp.sort(key=lambda x: (-x['n_off'], random.random()))
+        week_branch_size = {}
+        for we0 in w_emp:
+            week_branch_size[we0['branch']] = week_branch_size.get(we0['branch'],0) + 1
 
         for we in w_emp:
             if not we['n_off']: continue
@@ -261,11 +265,15 @@ def build_month_schedule(employees, y, m):
                 d -= 1
             def ok_leading(first_day):
                 return (prev_trailing + (first_day - w_days[0])) <= 6
+            moc = m_off_cnt.get(we['branch'], {})
+            ok_pen = math.ceil(week_branch_size.get(we['branch'],1) * 2 / 7) + 1
+            def pair_score(p):
+                return moc.get(p[0],0) + moc.get(p[1],0) + (0 if ok_leading(p[0]) else ok_pen)
             picked = []
             if n_off >= 2 and len(candidates) >= 2:
                 c_set = set(candidates)
-                pairs = [[d, d+1] for d in candidates if (d+1) in c_set and max_run([d, d+1]) < 4 and ok_leading(d)]
-                pairs.sort(key=lambda p: -(load.get(p[0],0)+load.get(p[1],0)))
+                pairs = [[d, d+1] for d in candidates if (d+1) in c_set and max_run([d, d+1]) < 4]
+                pairs.sort(key=pair_score)
                 if pairs:
                     picked = list(pairs[0])
                     if n_off > 2:
@@ -284,6 +292,7 @@ def build_month_schedule(employees, y, m):
             for d in picked:
                 off_map[we['key']].add(d)
                 branch_load[we['branch']][d] -= 1
+                m_off_cnt[we['branch']][d] += 1
 
     # Phase 2 — 출근 시간 배정
     branch_emp_list = {}
