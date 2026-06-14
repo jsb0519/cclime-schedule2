@@ -428,9 +428,9 @@ const MIN_YEAR = 2026, MIN_MONTH = 7; // 이동 가능 최소 월 (2026년 7월)
 
 function getMaxMonth() {
   const today = new Date();
-  const branch = document.getElementById('branch-sel').value;
-  const ahead = branch ? 2 : 1; // 지점: 당월+2개월, 전체: 당월+1개월
-  const d = new Date(today.getFullYear(), today.getMonth() + ahead, 1);
+  // 정상: 당월+다음달(+1). 2026년 6월 한정으로 8월(+2)까지 허용
+  const special = (today.getFullYear() === 2026 && today.getMonth() === 5) ? 1 : 0;
+  const d = new Date(today.getFullYear(), today.getMonth() + 1 + special, 1);
   return [d.getFullYear(), d.getMonth() + 1];
 }
 function updateNavBtns() {
@@ -904,7 +904,9 @@ function calcMissingEmps(y, m, branch, fb) {
 async function autoInitMissingMonths(branch) {
   if (!branch || employees.length === 0) return;
   const today = new Date();
-  const months = [0, 1, 2].map(offset => {
+  // 정상: 당월+다음달. 2026년 6월 한정으로 8월(+2)까지 포함
+  const special = (today.getFullYear() === 2026 && today.getMonth() === 5) ? [2] : [];
+  const months = [0, 1, ...special].map(offset => {
     const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
   }).filter(({ y, m }) => y > MIN_YEAR || (y === MIN_YEAR && m >= MIN_MONTH));
@@ -959,7 +961,8 @@ async function autoInitAllBranches() {
   _allBranchInitRunning = true;
   const branches = [...new Set(employees.map(e => e.branch))];
   const today = new Date();
-  const months = [0, 1, 2].map(offset => {
+  const special = (today.getFullYear() === 2026 && today.getMonth() === 5) ? [2] : [];
+  const months = [0, 1, ...special].map(offset => {
     const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
   }).filter(({ y, m }) => y > MIN_YEAR || (y === MIN_YEAR && m >= MIN_MONTH));
