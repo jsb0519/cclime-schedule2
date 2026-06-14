@@ -222,10 +222,12 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                          'store_hours':store_hours,'slots':slots,
                          'hire_dow':hire_dow_js,'is_hire_month':is_hire_month})
 
-    # 주 목록: first_monday부터 시작, 마지막 주는 다음달 초까지 연장해 일요일 마감
-    # Python: weekday()==6 이 일요일
+    # 주 목록: 마지막 주는 다음달 초까지 연장해 일요일 마감
+    # prev_overflow_off가 있으면 prefix 날짜는 overflow로 처리 → first_monday부터 시작
+    # prev_overflow_off가 없으면 prefix 날짜도 부분 주(partial week)로 포함 → day 1부터 시작
+    week_start = first_monday if (prefix_days > 0 and prev_overflow_off) else 1
     weeks, wd = [], []
-    for d in range(first_monday, days_in_month + extra_days + 1):
+    for d in range(week_start, days_in_month + extra_days + 1):
         wd.append(d)
         actual_date = date(y, m, 1) + _td(days=d-1)
         if actual_date.weekday() == 6:
@@ -310,13 +312,10 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                         if r > mx: mx = r
                 return mx
 
-            # 이전달 overflow 정보 없이 월초 prefix 날짜를 처리할 경우 역산 범위 제한
-            trailing_lb = (first_monday if (prev_overflow_off is None
-                           and prefix_days > 0 and w_days[0] == first_monday)
-                           else we['start_day'])
+            # 역방향 연속근무 카운트: prefix 날짜는 부분 주에서 이미 offMap에 배정되므로 자연스럽게 멈춤
             prev_trailing = 0
             d = w_days[0] - 1
-            while d >= trailing_lb and d not in off_map[we['key']]:
+            while d >= we['start_day'] and d not in off_map[we['key']]:
                 prev_trailing += 1
                 d -= 1
 
