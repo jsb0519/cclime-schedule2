@@ -1625,8 +1625,12 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
         return mx;
       };
       // 역방향 연속근무 제약: 이전 주 말미 연속근무 + 이번 주 쌍 시작 전 근무 ≤ 6
+      // 이전달 overflow 정보 없이 월초 prefix 날짜를 처리할 경우, 역산 범위를 firstMonday로 제한
+      // (prefix 기간의 휴무 여부를 알 수 없으므로 연속근무 0으로 가정)
+      const trailingLB = (!prevOverflowOff && prefixDays > 0 && wDays[0] === firstMonday)
+          ? firstMonday : startDay;
       let prevTrailing = 0;
-      for (let d = wDays[0]-1; d >= startDay && !offMap[key].has(d); d--) prevTrailing++;
+      for (let d = wDays[0]-1; d >= trailingLB && !offMap[key].has(d); d--) prevTrailing++;
       const okLeading = d => (prevTrailing + (d - wDays[0])) <= 6;
       const cSet = new Set(candidates);
       let picked = [];

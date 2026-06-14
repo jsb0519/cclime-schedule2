@@ -310,9 +310,13 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                         if r > mx: mx = r
                 return mx
 
+            # 이전달 overflow 정보 없이 월초 prefix 날짜를 처리할 경우 역산 범위 제한
+            trailing_lb = (first_monday if (prev_overflow_off is None
+                           and prefix_days > 0 and w_days[0] == first_monday)
+                           else we['start_day'])
             prev_trailing = 0
             d = w_days[0] - 1
-            while d >= we['start_day'] and d not in off_map[we['key']]:
+            while d >= trailing_lb and d not in off_map[we['key']]:
                 prev_trailing += 1
                 d -= 1
 
