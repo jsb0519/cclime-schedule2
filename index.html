@@ -36,8 +36,25 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .nav-btn{padding:5px 11px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;line-height:1}
 .nav-btn:hover{background:#f5f5f5}
 .month-lbl{font-size:16px;font-weight:700;min-width:100px;text-align:center}
-.btn-init{padding:6px 13px;background:#fff;color:#059669;border:1px solid #059669;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
-.btn-init:hover{background:#ECFDF5}
+.btn-orig{padding:6px 13px;background:#fff;color:#059669;border:1px solid #059669;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-orig:hover{background:#ECFDF5}
+.btn-init{padding:6px 13px;background:#fff;color:#DC2626;border:1px solid #DC2626;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-init:hover{background:#FEF2F2}
+#orig-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:30px 16px}
+#orig-modal-overlay.open{display:flex}
+#orig-modal{background:#fff;border-radius:14px;width:100%;max-width:1100px;padding:24px 20px 20px;box-shadow:0 8px 32px rgba(0,0,0,.2);position:relative}
+#orig-modal h3{margin:0 0 4px;font-size:15px;color:#1a1a2e}
+#orig-modal .orig-sub{font-size:11px;color:#aaa;margin-bottom:14px}
+#orig-modal .orig-close{position:absolute;top:14px;right:16px;background:none;border:none;font-size:20px;cursor:pointer;color:#888;line-height:1}
+#orig-tbl-wrap{overflow-x:auto}
+#orig-tbl-wrap table{border-collapse:collapse;font-size:11px;min-width:600px;width:100%}
+#orig-tbl-wrap th,#orig-tbl-wrap td{border:1px solid #e5e7eb;padding:3px 5px;text-align:center;white-space:nowrap}
+#orig-tbl-wrap th{background:#f3f4f6;font-weight:600;color:#374151}
+#orig-tbl-wrap .c-off{background:#FEE2E2;color:#991B1B}
+#orig-tbl-wrap .c-work{color:#374151}
+#orig-tbl-wrap .c-sat{color:#2563EB}
+#orig-tbl-wrap .c-sun{color:#DC2626}
+#orig-tbl-wrap .c-hol{background:#FFF3CD}
 .btn-refresh{padding:6px 13px;background:#fff;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer}
 .btn-refresh:hover{background:#f5f5f5}
 
@@ -213,6 +230,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <button class="nav-btn" id="btn-prev" onclick="prevMonth()">◀</button>
     <span class="month-lbl" id="month-lbl">—</span>
     <button class="nav-btn" id="btn-next" onclick="nextMonth()">▶</button>
+    <button class="btn-orig" id="btn-orig" onclick="openOrigModal()">📄 근무표 원본 확인</button>
     <button class="btn-init" id="btn-init" onclick="initMonth()">📋 당월 초기화</button>
     <button class="btn-excel" onclick="openExcelModal()">⬇ 엑셀 다운로드</button>
     <span id="fb-status" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
@@ -257,6 +275,16 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <div class="modal-btns" style="flex-shrink:0;margin-top:12px">
       <button class="btn-ok" onclick="document.getElementById('branch-modal').classList.remove('open')">닫기</button>
     </div>
+  </div>
+</div>
+
+<!-- ══ 근무표 원본 확인 MODAL ══ -->
+<div id="orig-modal-overlay" onclick="if(event.target===this)closeOrigModal()">
+  <div id="orig-modal">
+    <button class="orig-close" onclick="closeOrigModal()">✕</button>
+    <h3 id="orig-modal-title">근무표 원본 확인</h3>
+    <div class="orig-sub">자동 생성된 원본 스케줄 (수동 수정 이전 상태)</div>
+    <div id="orig-tbl-wrap"></div>
   </div>
 </div>
 
@@ -418,6 +446,16 @@ const BRANCH_PASSWORDS = {
 let _viewerMode = false;
 let _branchAdminBranch = null; // 지점 관리자 모드: 해당 지점명
 
+function isPastMonth(y, m) {
+  const now = new Date();
+  return y < now.getFullYear() || (y === now.getFullYear() && m < now.getMonth() + 1);
+}
+function isBranchLocked() {
+  // 지나간 달은 지점 관리자만 편집 불가, 마스터는 수정 가능
+  if (!isPastMonth(curY, curM)) return false;
+  return sessionStorage.getItem('site_auth') === 'branch';
+}
+
 function applyBranchAdminMode(branch) {
   _branchAdminBranch = branch;
   setTimeout(() => showTab('schedule'), 0);
@@ -560,6 +598,33 @@ async function fbSetBranch(y, m, branch, data) {
     const msg = await r.text().catch(() => '');
     throw new Error('HTTP ' + r.status + (msg ? ': ' + msg.slice(0,80) : ''));
   }
+}
+
+/* ── Overflow 갱신 (수동 편집 → 다음달 자동생성에 반영) ── */
+function fbOverflowUrl(y, m) {
+  return `${FB_BASE}/overflow/${y}_${String(m).padStart(2,'0')}.json`;
+}
+function refreshOverflow(y, m, branch) {
+  if (!schData || !schData.__overflow) return;
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const updated = {};
+  for (const [key, sd] of Object.entries(schData)) {
+    if (key === '__overflow' || !sd || sd.branch !== branch) continue;
+    const safeKey = key.replace(/[\.#\$\[\]\/]/g, '_');
+    const ex = schData.__overflow[key] || {};
+    const allOff = (sd.off_days || []).map(Number);
+    const lastOffDay = allOff.filter(d => d >= 1 && d <= daysInMonth).reduce((a, b) => Math.max(a, b), 0);
+    const overflowDays = allOff.filter(d => d > daysInMonth).map(d => d - daysInMonth).sort((a, b) => a - b);
+    schData.__overflow[key] = { ...ex, off_days: overflowDays, last_off_day: lastOffDay };
+    updated[safeKey] = { _key: key, off_days: overflowDays, last_off_day: lastOffDay,
+                         pair_idx: ex.pair_idx ?? null, weeks_used: ex.weeks_used ?? null };
+  }
+  if (Object.keys(updated).length === 0) return;
+  fetchTimed(fbOverflowUrl(y, m), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updated)
+  }).catch(e => console.warn('overflow 갱신 실패:', e));
 }
 const BS = {
   골드:{bg:'#FFF3CD',fg:'#856404'}, 실버:{bg:'#E2E3E5',fg:'#383D41'},
@@ -1937,10 +2002,69 @@ function getPrevOverflowOff(y, m) {
   return Object.keys(r).length > 0 ? r : null;
 }
 
+/* ── 근무표 원본 확인 모달 ── */
+function openOrigModal() {
+  const branch = document.getElementById('branch-sel').value;
+  if (!branch) { alert('지점을 선택한 후 눌러 주세요.'); return; }
+  if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
+
+  const orig = buildMonthSchedule(curY, curM, getPrevOverflowOff(curY, curM));
+  const days = new Date(curY, curM, 0).getDate();
+  const DOW = ['일','월','화','수','목','금','토'];
+  const HOLIDAYS = typeof getHolidays === 'function' ? getHolidays(curY, curM) : {};
+
+  // 해당 지점 직원만 필터
+  const keys = Object.keys(orig).filter(k => k !== '__overflow' && orig[k].branch === branch)
+    .sort((a, b) => (orig[a].name || '').localeCompare(orig[b].name || '', 'ko'));
+
+  if (keys.length === 0) { alert('해당 지점 데이터가 없습니다.'); return; }
+
+  // 헤더
+  let head = '<tr><th style="min-width:70px">이름</th>';
+  for (let d = 1; d <= days; d++) {
+    const dow = new Date(curY, curM - 1, d).getDay();
+    const isHol = HOLIDAYS[d];
+    const cls = isHol ? 'c-sun' : dow === 0 ? 'c-sun' : dow === 6 ? 'c-sat' : '';
+    head += `<th class="${cls}">${d}<br>${DOW[dow]}</th>`;
+  }
+  head += '</tr>';
+
+  // 행
+  let body = '';
+  for (const key of keys) {
+    const sd = orig[key];
+    const offSet = new Set((sd.off_days || []).map(Number));
+    body += `<tr><td style="text-align:left;padding:3px 7px;font-weight:600">${sd.name || key}</td>`;
+    for (let d = 1; d <= days; d++) {
+      const dow = new Date(curY, curM - 1, d).getDay();
+      const isHol = HOLIDAYS[d];
+      const isOff = offSet.has(d);
+      const holCls = isHol ? 'c-hol' : '';
+      if (isOff) {
+        body += `<td class="c-off ${holCls}">휴</td>`;
+      } else {
+        const start = (sd.shift_starts && sd.shift_starts[String(d)]) || (sd.shift_slots && sd.shift_slots[0]) || '';
+        const dowCls = isHol ? 'c-sun' : dow === 0 ? 'c-sun' : dow === 6 ? 'c-sat' : 'c-work';
+        body += `<td class="${dowCls} ${holCls}">${start}</td>`;
+      }
+    }
+    body += '</tr>';
+  }
+
+  document.getElementById('orig-modal-title').textContent = `근무표 원본 확인 — ${branch} ${curY}년 ${curM}월`;
+  document.getElementById('orig-tbl-wrap').innerHTML =
+    `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  document.getElementById('orig-modal-overlay').classList.add('open');
+}
+function closeOrigModal() {
+  document.getElementById('orig-modal-overlay').classList.remove('open');
+}
+
 function initMonth() {
   const branch = document.getElementById('branch-sel').value;
   if (!branch) { alert('지점을 선택한 후 초기화해 주세요.'); return; }
-  if (!confirm(`[${branch}] ${curY}년 ${curM}월 근무표를 초기화합니다.\n출근시간과 휴무일을 새로 생성합니다.`)) return;
+  if (isBranchLocked()) { alert('지나간 달의 근무표는 마스터 계정만 수정할 수 있습니다.'); return; }
+  if (!confirm(`[주의!] [${branch}] ${curY}년 ${curM}월 근무표를 초기화합니다.\n기존 수동 수정 내역이 모두 삭제되고 자동 생성 스케줄로 덮어씌워집니다.`)) return;
   if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
 
   // 당월만 초기화
@@ -1996,6 +2120,8 @@ function _doSave(branch, retryCount = 0) {
       dirty = false; // Firebase 저장 완료 후에 dirty 해제
       setFbStatus(true, '🟢 저장 완료');
       setStat('자동 저장 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+      refreshOverflow(curY, curM, branch); // 수동 편집 반영 → 다음달 생성용 overflow 갱신
+      saveLs(curY, curM, schData);         // __overflow 갱신 후 로컬 재저장
       if (_pendingSave) { // 대기 중인 변경이 있으면 즉시 재저장
         saveLs(curY, curM, schData);
         _doSave(branch);
@@ -2046,7 +2172,9 @@ function mkEntry(emp) {
 
 function buildTable() {
   const branch = document.getElementById('branch-sel').value;
-  const isReadOnly = !branch || _viewerMode;
+  const isReadOnly = !branch || _viewerMode || isBranchLocked();
+  const origBtn = document.getElementById('btn-orig');
+  if (origBtn) origBtn.style.display = (!branch || _viewerMode) ? 'none' : '';
   const initBtn = document.getElementById('btn-init');
   if (initBtn) initBtn.style.display = isReadOnly ? 'none' : '';
   const fbStatus = document.getElementById('fb-status');
@@ -2246,6 +2374,7 @@ function updateDmPreview() {
 }
 function saveDayModal() {
   if (!dmKey) return;
+  if (isBranchLocked()) { closeDayModal(); alert('지나간 달의 근무표는 마스터 계정만 수정할 수 있습니다.'); return; }
   if (!schData[dmKey]) {
     const emp = employees.find(e => e.branch+'||'+e.name === dmKey);
     schData[dmKey] = mkEntry(emp || {name:'',branch:'',belt:'화이트',hire_date:''});
@@ -2299,6 +2428,7 @@ function updatePreview() {
 function closeModal() { document.getElementById('modal').classList.remove('open'); editKey=null; }
 function saveModal() {
   if (!editKey) return;
+  if (isBranchLocked()) { closeModal(); alert('지나간 달의 근무표는 마스터 계정만 수정할 수 있습니다.'); return; }
   const start = document.getElementById('m-start').value;
   if (!schData[editKey]) {
     const emp = employees.find(e=>e.branch+'||'+e.name===editKey);
