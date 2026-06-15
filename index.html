@@ -1615,14 +1615,20 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
     });
   }
 
-  // prefix 기간 연속 출근 제한: 첫 월요일 이전에 5일 이내 휴무 보장
+  // prefix 기간 연속 출근 제한: 첫 쌍 정규 휴무일까지 5일 이내 보장
+  // 첫 쌍 정규 휴무일: 월화=firstMonday, 목금=firstMonday+3, 토일=firstMonday+5
+  const PAIR_FIRST_OFF_OFFSETS = [0, 3, 5];
   if (prefixDays > 0) {
     const prefixRange = Array.from({length: firstMonday - 1}, (_, i) => i + 1);
     empData.forEach(({ key, startDay }) => {
       if (startDay >= firstMonday) return;
+      const pairIdx = empState[key].pairIdx;
+      const firstPairOff = firstMonday + PAIR_FIRST_OFF_OFFSETS[pairIdx];
       while (true) {
-        const prevAll = [...offMap[key]].filter(d => d < firstMonday).sort((a, b) => a - b);
+        const prevAll = [...offMap[key]].filter(d => d < firstPairOff).sort((a, b) => a - b);
         const lastOff = prevAll.length > 0 ? prevAll[prevAll.length - 1] : 0;
+        const consec = firstPairOff - lastOff - 1;
+        if (consec <= 5) break;
         const mustBy = lastOff + 5;
         if (mustBy < 1) break;
         const cands = prefixRange.filter(d =>

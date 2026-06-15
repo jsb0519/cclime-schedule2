@@ -262,14 +262,20 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                     off_map[k].add(lod - days_in_prev)
 
     # prefix_days 연속 제한: 달 초 첫 월요일 이전 공백 기간에 연속 초과 방지
+    # 연속 판정 범위: 마지막 휴무 ~ 첫 쌍 정규 휴무일 (월화=firstMonday, 목금=+3, 토일=+5)
+    PAIR_FIRST_OFF_OFFSETS = [0, 3, 5]
     if prefix_days > 0:
         prefix_range = list(range(1, first_monday))
         for ed in emp_data:
             key = ed['key']
             if ed['start_day'] >= first_monday: continue
+            pair_idx = emp_state[key]['pair_idx']
+            first_pair_off = first_monday + PAIR_FIRST_OFF_OFFSETS[pair_idx]
             while True:
-                prev_all = sorted(d for d in off_map[key] if d < first_monday)
+                prev_all = sorted(d for d in off_map[key] if d < first_pair_off)
                 last_off = prev_all[-1] if prev_all else 0
+                consec = first_pair_off - last_off - 1
+                if consec <= 5: break
                 must_by = last_off + 5
                 if must_by < 1: break
                 cands = [d for d in prefix_range
