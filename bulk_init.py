@@ -494,7 +494,7 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
             'shift_base_offset': base_offset_map.get(key,0),
             'rotation_interval': ROT_INTERVAL,
             'shift_starts': starts_by_key_day.get(key,{}),
-            'off_days': sorted(d for d in off_map[key] if 1 <= d <= days_in_month),
+            'off_days': sorted(d for d in off_map[key] if first_monday <= d <= days_in_month),
             'day_types': {}
         }
     return result, overflow_off
