@@ -696,6 +696,11 @@ function onEmployeeData(resp) {
       }
 
       // work_type / belt / exit_date 변경 감지 → Firebase 동기화
+      // 정책: 기존 근무표(off_days, shift_starts)는 불변 — 입사·퇴사 반영만 예외
+      //   - hours 변경: shift_hours/shift_slots/work_type 표시만 업데이트, shift_starts 그대로
+      //   - days 변경(주4↔주5): work_type 텍스트만 업데이트, 휴무/출근시간 그대로
+      //   - belt 변경: belt 필드만 업데이트
+      //   - exit_date 변경: exit_date 필드만 업데이트
       let wtChanged = false;
       employees.forEach(emp => {
         const key = emp.branch + '||' + emp.name;
@@ -708,41 +713,17 @@ function onEmployeeData(resp) {
         const hoursChanged    = sd.shift_hours !== newStoreHours;
         const beltChanged     = sd.belt !== (emp.belt || '화이트');
         const exitDateChanged = (emp.exit_date || '') !== (sd.exit_date || '');
+        const wtTextChanged   = (emp.work_type || '') !== (sd.work_type || '');
 
-        if (!hoursChanged && !beltChanged && !exitDateChanged) return;
+        if (!hoursChanged && !beltChanged && !exitDateChanged && !wtTextChanged) return;
 
-        if (beltChanged) sd.belt = emp.belt || '화이트';
-
-        if (exitDateChanged) sd.exit_date = emp.exit_date || '';
-
-        if (hoursChanged) {
+        if (beltChanged)     sd.belt       = emp.belt || '화이트';
+        if (exitDateChanged) sd.exit_date  = emp.exit_date || '';
+        if (hoursChanged || wtTextChanged) {
+          // 근무시간·근무형태 표시 업데이트 (shift_starts는 그대로 유지)
           sd.shift_hours = newStoreHours;
           sd.shift_slots = newSlots;
           sd.work_type   = emp.work_type || '';
-
-          // 근무일 출근 시간 재계산 (off_days·day_types 보존, hire/exit 범위 내)
-          const daysInMonth = new Date(curY, curM, 0).getDate();
-          const ROT_INT = sd.rotation_interval || 2;
-          const basePos = sd.shift_base_offset || 0;
-          const offs = new Set(sd.off_days || []);
-
-          let startDay = 1, endDay = daysInMonth;
-          if (sd.hire_date && sd.hire_date.length >= 10) {
-            const [hy, hm, hd] = sd.hire_date.split('-').map(Number);
-            if (hy === curY && hm === curM) startDay = hd;
-          }
-          if (sd.exit_date && sd.exit_date.length >= 10) {
-            const [ey, em, ed] = sd.exit_date.split('-').map(Number);
-            if (ey === curY && em === curM) endDay = ed;
-          }
-
-          const newStarts = {};
-          for (let d = startDay; d <= endDay; d++) {
-            if (offs.has(d) || (sd.day_types && sd.day_types[String(d)])) continue;
-            const rot = Math.floor((d - 1) / ROT_INT);
-            newStarts[String(d)] = newSlots[(basePos + rot) % newSlots.length];
-          }
-          sd.shift_starts = newStarts;
         }
 
         wtChanged = true;
