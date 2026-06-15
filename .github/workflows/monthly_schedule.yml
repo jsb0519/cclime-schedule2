@@ -1,0 +1,21 @@
+name: 익월 근무표 자동 생성
+
+on:
+  schedule:
+    - cron: '0 15 1 * *'   # 매달 1일 00:00 KST (= UTC 15:00)
+  workflow_dispatch:         # GitHub UI에서 수동 실행 가능
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: 익월 근무표 생성 및 Firebase 업로드
+        run: python3 bulk_init.py

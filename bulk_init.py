@@ -656,8 +656,10 @@ def main():
         y, m = int(args[0]), int(args[1])
         print(f"  지정 연월: {y}년 {m}월")
     else:
-        y, m = now.year, now.month
-        print(f"  대상 연월: {y}년 {m}월 (KST 현재)")
+        # 매달 1일 실행 시 익월 근무표 생성
+        y = now.year + (1 if now.month == 12 else 0)
+        m = 1 if now.month == 12 else now.month + 1
+        print(f"  대상 연월: {y}년 {m}월 (익월 자동 생성)")
 
     run_month(y, m, employees, branches)
     print("\n완료!")
