@@ -365,7 +365,7 @@ function applyViewerMode() {
   }
 })();
 function siteUnlock(){
-  const pw = document.getElementById('site-pw-input').value;
+  const pw = document.getElementById('site-pw-input').value.toLowerCase();
   if(pw === '2010'){
     sessionStorage.setItem('site_auth','viewer');
     document.getElementById('site-lock').style.display='none';
@@ -388,7 +388,7 @@ function siteUnlock(){
   }
 }
 function siteUnlockAuto(){
-  const pw = document.getElementById('site-pw-input').value;
+  const pw = document.getElementById('site-pw-input').value.toLowerCase();
   const validPw = pw === '2010' || MASTER_PASSWORDS.includes(pw)
     || Object.values(BRANCH_PASSWORDS).includes(pw);
   if(validPw) siteUnlock();
