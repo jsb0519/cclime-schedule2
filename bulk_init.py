@@ -254,10 +254,11 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
             off_map[k].update(days)
 
     # ══ PHASE 1: 3주 고정쌍 + 1주 Flex 휴무 배정 ══
-    # 3주: 현재 쌍(월화/목금/토일) 고정
-    # 4주(flex): 비연속 2일 개별 배정 (3일 연속 방지)
+    # 3주: 현재 쌍(월화/목금/토일) 고정 (주5일=2일, 주4일=쌍2일+추가1일)
+    # 4주(flex): 주5일=비연속2일, 주4일=비연속3일 배정 (3일 연속 방지)
     # flex 이후 지점 내 균등 배분으로 다음 쌍 결정 (몰림 방지)
     #   → 현재 쌍별로 짝수번째=(p+1)%3, 홀수번째=(p+2)%3 교대 배정 후 내부 셔플
+    extra_off_by_br = {}  # 정규 주 주4일제 추가 휴무 균등화용 (월 전체 누적)
     for w_days in weeks:
         flex_off = {}  # 이번 주 flex 지점별 날짜 카운트
 
@@ -307,6 +308,18 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                     if d < ed['start_day'] or d > ed['ext_end_day']: continue
                     if (day_weekday(d) == wd1 or day_weekday(d) == wd2) and d not in off_map[key]:
                         off_map[key].add(d)
+                # 주4일제: 쌍 이외 추가 1일 배정 (수요일·쌍 요일 제외, 지점 내 균등)
+                if ed['days_per_week'] <= 4:
+                    if br not in extra_off_by_br:
+                        extra_off_by_br[br] = {}
+                    extra_cands = [d for d in w_days
+                                   if ed['start_day'] <= d <= ed['ext_end_day']
+                                   and day_weekday(d) not in {2, wd1, wd2}
+                                   and d not in off_map[key]]
+                    if extra_cands:
+                        best_d = min(extra_cands, key=lambda d: extra_off_by_br[br].get(d, 0))
+                        off_map[key].add(best_d)
+                        extra_off_by_br[br][best_d] = extra_off_by_br[br].get(best_d, 0) + 1
                 state['weeks_used'] += 1
 
             else:
@@ -329,15 +342,28 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                 if br not in flex_off:
                     flex_off[br] = {d: 0 for d in w_days}
 
-                # 비연속 2일 중 균등화 점수 최소 조합 선택
+                n_off = 3 if ed['days_per_week'] <= 4 else 2
                 best, best_score = None, float('inf')
-                for i in range(len(avail)):
-                    for j in range(i+1, len(avail)):
-                        d1, d2 = avail[i], avail[j]
-                        if abs(d1 - d2) == 1: continue  # 인접(연속) 제외
-                        score = flex_off[br].get(d1, 0) + flex_off[br].get(d2, 0)
-                        if score < best_score:
-                            best_score, best = score, (d1, d2)
+                if n_off == 2:
+                    # 주5일제: 비연속 2일 균등화 조합 선택
+                    for i in range(len(avail)):
+                        for j in range(i+1, len(avail)):
+                            d1, d2 = avail[i], avail[j]
+                            if abs(d1 - d2) == 1: continue
+                            score = flex_off[br].get(d1, 0) + flex_off[br].get(d2, 0)
+                            if score < best_score:
+                                best_score, best = score, (d1, d2)
+                else:
+                    # 주4일제: 비연속 3일 우선 (연속 발생 시 페널티)
+                    for i in range(len(avail)):
+                        for j in range(i+1, len(avail)):
+                            for k in range(j+1, len(avail)):
+                                d1, d2, d3 = avail[i], avail[j], avail[k]
+                                adj = (1 if abs(d1-d2)==1 else 0) + (1 if abs(d2-d3)==1 else 0)
+                                score = (flex_off[br].get(d1,0) + flex_off[br].get(d2,0)
+                                         + flex_off[br].get(d3,0)) + adj * 100
+                                if score < best_score:
+                                    best_score, best = score, (d1, d2, d3)
                 if best:
                     for d in best:
                         off_map[key].add(d)
@@ -411,9 +437,9 @@ def main():
     )
     print(f"  → {len(employees)}명 / {len(branches)}개 지점 로드됨\n")
 
-    # 1. 4월, 5월, 6월 삭제
-    print("━━ 4월·5월·6월 Firebase 데이터 삭제 ━━")
-    for y, m in [(2026,4), (2026,5), (2026,6)]:
+    # 1. 4~8월 전체 삭제 (구형 키 잔존 방지)
+    print("━━ 4~8월 Firebase 데이터 삭제 ━━")
+    for y, m in [(2026,4), (2026,5), (2026,6), (2026,7), (2026,8)]:
         url = fb_month_url(y, m)
         try:
             status, _ = http_request(url, method='DELETE')
