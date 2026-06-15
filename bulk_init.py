@@ -308,23 +308,6 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                     if d < ed['start_day'] or d > ed['ext_end_day']: continue
                     if (day_weekday(d) == wd1 or day_weekday(d) == wd2) and d not in off_map[key]:
                         off_map[key].add(d)
-                # 연속 출근 5일 제한: 쌍 배정 후 초과 시 추가 휴무 1일
-                _prev_offs = [d for d in off_map[key] if d < w_days[0]]
-                if _prev_offs:
-                    _last_off = max(_prev_offs)
-                    _must_by = _last_off + 5
-                    _pair_offs = [d for d in off_map[key]
-                                  if w_days[0] <= d <= w_days[-1]
-                                  and day_weekday(d) in {wd1, wd2}]
-                    _earliest = min(_pair_offs) if _pair_offs else w_days[-1] + 1
-                    if _earliest > _must_by:
-                        _extra = [d for d in w_days
-                                  if ed['start_day'] <= d <= ed['ext_end_day']
-                                  and d <= _must_by
-                                  and day_weekday(d) != 2
-                                  and d not in off_map[key]]
-                        if _extra:
-                            off_map[key].add(_extra[-1])  # 가장 늦은 날 선택
                 # 주4일제: 쌍 이외 추가 1일 배정 (수요일·쌍 요일 제외, 지점 내 균등)
                 if ed['days_per_week'] <= 4:
                     if br not in extra_off_by_br:
