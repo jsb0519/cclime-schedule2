@@ -1860,7 +1860,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
       shift_base_offset: baseOffsetMap[key] || 0,
       rotation_interval: ROT_INTERVAL,
       shift_starts: startsByKeyDay[key] || {},
-      off_days: [...offMap[key]].filter(d => d >= firstMonday && d <= daysInMonth).sort((a, b) => a - b),
+      off_days: [...offMap[key]].filter(d => d >= (y === 2026 && m === 7 ? firstMonday : 1) && d <= daysInMonth).sort((a, b) => a - b),
       day_types: {}
     };
   });
