@@ -221,18 +221,9 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
         weeks.append(list(range(d, d+7)))
         d += 7
 
-    off_map = {ed['key']:set() for ed in emp_data}
-    # 이전 달 마지막 주 overflow 휴무 선반영 (다음달 calendar 표시용)
-    if prev_overflow_off and prefix_days > 0:
-        for k, days in prev_overflow_off.items():
-            if k in off_map:
-                off_map[k].update(days)
-
-    # ══ PHASE 1: 3그룹 고정 휴무 배정 ══
-    # 우선순위 ①수요일 전원출근 ②일별 편차 최소화 ③연속근무≤5 ④연속휴무≤2 ⑤2일 연속 우선
-    # 지점 내 직원을 벨트→이름 순 정렬 후 idx%3으로 그룹:
-    #   0=월화 (py: 0,1), 1=목금 (py: 3,4), 2=토일 (py: 5,6)
-    PAIR_WDAYS = [(0,1),(3,4),(5,6)]  # Python weekday
+    # 3그룹 초기 배정: 지점 내 벨트→이름 순 정렬 후 idx%3
+    #   0=월화(py:0,1), 1=목금(py:3,4), 2=토일(py:5,6)
+    PAIR_WDAYS = [(0,1),(3,4),(5,6)]
     emp_group = {}
     branch_sorted = {}
     for ed in emp_data:
@@ -244,31 +235,94 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
         for i, item in enumerate(arr):
             emp_group[item['key']] = i % 3
 
+    # 직원별 사이클 상태: pair_idx, weeks_used
+    emp_state = {}
+    for ed in emp_data:
+        key = ed['key']
+        prev = prev_overflow_off.get(key) if prev_overflow_off else None
+        if isinstance(prev, dict) and prev.get('pair_idx') is not None:
+            emp_state[key] = {'pair_idx': prev['pair_idx'], 'weeks_used': prev.get('weeks_used', 0)}
+        else:
+            emp_state[key] = {'pair_idx': emp_group.get(key, 0), 'weeks_used': 0}
+
+    off_map = {ed['key']:set() for ed in emp_data}
+    # 이전 달 마지막 주 overflow 휴무 선반영
+    if prev_overflow_off and prefix_days > 0:
+        for k, v in prev_overflow_off.items():
+            if k not in off_map: continue
+            days = v if isinstance(v, (set, list)) else v.get('off_days', [])
+            off_map[k].update(days)
+
+    # ══ PHASE 1: 3주 고정쌍 + 1주 Flex 휴무 배정 ══
+    # 3주: 현재 쌍(월화/목금/토일) 고정
+    # 4주(flex): 비연속 2일 개별 배정 (3일 연속 방지)
+    # flex 이후 랜덤으로 다른 쌍 선택 → 매 사이클 동료가 달라짐
     for w_days in weeks:
+        flex_off = {}  # 이번 주 flex 지점별 날짜 카운트
+
         for ed in emp_data:
             key = ed['key']
-            group = emp_group.get(key, 0)
+            state = emp_state[key]
+            br = ed['emp']['branch']
             is_hire_week = (ed['is_hire_month']
                             and ed['start_day'] >= w_days[0]
                             and ed['start_day'] <= w_days[-1])
+
             if is_hire_week:
-                # 입사 주: 입사일+3일 이후 비수요일에서 FW5 기준 n일 배정
+                # 입사 주: 상태 유지, 기존 로직
                 table = FW4 if ed['days_per_week'] <= 4 else FW5
                 n_off = table.get(ed['hire_dow'], 0)
                 cands = [d for d in w_days
                          if d > ed['start_day'] + 2 and d <= ed['ext_end_day']
-                         and day_weekday(d) != 2  # not Wed
-                         and d not in off_map[key]]
+                         and day_weekday(d) != 2 and d not in off_map[key]]
                 for d in cands[:n_off]:
                     off_map[key].add(d)
-            else:
-                # 정규 주: 그룹 요일 쌍 배정
-                wd1, wd2 = PAIR_WDAYS[group]
+
+            elif state['weeks_used'] < 3:
+                # 정규 주: 현재 쌍 배정
+                wd1, wd2 = PAIR_WDAYS[state['pair_idx']]
                 for d in w_days:
-                    if d < ed['start_day'] or d > ed['ext_end_day']:
-                        continue
+                    if d < ed['start_day'] or d > ed['ext_end_day']: continue
                     if (day_weekday(d) == wd1 or day_weekday(d) == wd2) and d not in off_map[key]:
                         off_map[key].add(d)
+                state['weeks_used'] += 1
+
+            else:
+                # Flex 주: 비연속 2일 개별 배정 후 다음 쌍으로 교체
+                others = [p for p in [0,1,2] if p != state['pair_idx']]
+                next_pair = random.choice(others)
+
+                # 금지 요일: 수요일(2) + 3일 연속 경계 방지
+                # prev=토일(2) → 이번 주 월(0): 토·일·월 3연속
+                # next=월화(0) → 이번 주 일(6): 일·월·화 3연속
+                forbidden_py = {2}  # Wednesday
+                if state['pair_idx'] == 2: forbidden_py.add(0)  # Mon
+                if next_pair == 0:         forbidden_py.add(6)  # Sun
+
+                avail = [d for d in w_days
+                         if ed['start_day'] <= d <= ed['ext_end_day']
+                         and day_weekday(d) not in forbidden_py
+                         and d not in off_map[key]]
+
+                if br not in flex_off:
+                    flex_off[br] = {d: 0 for d in w_days}
+
+                # 비연속 2일 중 균등화 점수 최소 조합 선택
+                best, best_score = None, float('inf')
+                for i in range(len(avail)):
+                    for j in range(i+1, len(avail)):
+                        d1, d2 = avail[i], avail[j]
+                        if abs(d1 - d2) == 1: continue  # 인접(연속) 제외
+                        score = flex_off[br].get(d1, 0) + flex_off[br].get(d2, 0)
+                        if score < best_score:
+                            best_score, best = score, (d1, d2)
+                if best:
+                    for d in best:
+                        off_map[key].add(d)
+                        flex_off[br][d] = flex_off[br].get(d, 0) + 1
+
+                state['pair_idx']   = next_pair
+                state['weeks_used'] = 0
 
     # Phase 2 — 출근 시간 배정
     branch_emp_list = {}
@@ -298,14 +352,13 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
             for pos, w in enumerate(workers):
                 starts_by_key_day[w['key']][str(d)] = w['slots'][(pos+rot)%len(w['slots'])]
 
-    # 다음달 초 넘침 휴무 수집 (다음달 build_month_schedule에 prev_overflow_off로 전달)
+    # overflow: 다음달 초 휴무일 + 직원 사이클 상태 (항상 저장)
     overflow_off = {}
-    if extra_days > 0:
-        for ed in emp_data:
-            k = ed['key']
-            over = [d - days_in_month for d in off_map[k] if d > days_in_month]
-            if over:
-                overflow_off[k] = over
+    for ed in emp_data:
+        k = ed['key']
+        state = emp_state[k]
+        over = [d - days_in_month for d in off_map[k] if d > days_in_month] if extra_days > 0 else []
+        overflow_off[k] = {'off_days': over, 'pair_idx': state['pair_idx'], 'weeks_used': state['weeks_used']}
 
     result = {}
     for ed in emp_data:
@@ -346,14 +399,14 @@ def main():
         except Exception as e:
             print(f"  DELETE {y}년 {m}월 → 오류: {e}")
 
-    # 2. 7월·8월 초기화 (순서대로 — 이전달 넘침 휴무를 다음달에 전달)
-    prev_overflow = {}  # 이전달 넘침 휴무 (key → [day, ...])
+    # 2. 7월·8월 초기화 (순서대로 — overflow에 휴무일+사이클 상태 포함)
+    prev_overflow = None  # 첫 달은 초기값 사용
     for y, m in [(2026,7),(2026,8)]:
         print(f"\n━━ {y}년 {m}월 초기화 ━━")
-        # prev_overflow의 키는 '브랜치||이름' 형식, Set으로 변환해 전달
-        po = {k: set(days) for k, days in prev_overflow.items()} if prev_overflow else None
-        all_data, overflow_off = build_month_schedule(employees, y, m, po)
-        prev_overflow = overflow_off  # 다음달에 전달
+        all_data, overflow_off = build_month_schedule(employees, y, m, prev_overflow)
+        # overflow_off: { key: { off_days:[...], pair_idx:int, weeks_used:int } }
+        # off_days를 set으로 변환해서 다음달에 전달
+        prev_overflow = {k: {**v, 'off_days': set(v['off_days'])} for k, v in overflow_off.items()}
 
         # 지점별 분류
         by_branch = {}

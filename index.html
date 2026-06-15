@@ -1538,20 +1538,9 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
     weeks.push([d, d+1, d+2, d+3, d+4, d+5, d+6]);
   }
 
-  const offMap = {};
-  empData.forEach(({ key }) => offMap[key] = new Set());
-  // 이전 달 마지막 주 overflow 휴무 선반영 (다음달 calendar 표시용)
-  if (prevOverflowOff && prefixDays > 0) {
-    Object.entries(prevOverflowOff).forEach(([k, days]) => {
-      if (offMap[k]) days.forEach(d => offMap[k].add(d));
-    });
-  }
-
-  // ══ PHASE 1: 3그룹 고정 휴무 배정 ══
-  // 우선순위 ①수요일 전원출근 ②일별 편차 최소화 ③연속근무≤5 ④연속휴무≤2 ⑤2일 연속 우선
-  // 지점 내 직원을 벨트→이름 순 정렬 후 idx%3으로 그룹:
-  //   0=월화, 1=목금, 2=토일
-  const PAIR_DOWS = [[1,2],[4,5],[6,0]]; // [월,화],[목,금],[토,일]
+  // 3그룹 초기 배정: 지점 내 벨트→이름 순 정렬 후 idx%3
+  //   그룹 0=월화, 1=목금, 2=토일
+  const PAIR_DOWS = [[1,2],[4,5],[6,0]];
   const empGroup = {};
   const byBranchForGrp = {};
   empData.forEach(({ key, emp }) => {
@@ -1564,25 +1553,92 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
     arr.forEach(({ key }, i) => { empGroup[key] = i % 3; });
   });
 
+  // 직원별 사이클 상태: pairIdx(현재 쌍), weeksUsed(이번 쌍 연속 사용 주수)
+  // 이전 달 overflow에서 복원, 없으면 초기값(그룹 배정, 0주)
+  const empState = {};
+  empData.forEach(({ key }) => {
+    const prev = prevOverflowOff && prevOverflowOff[key];
+    empState[key] = {
+      pairIdx:   (prev && prev.pair_idx   != null) ? prev.pair_idx   : (empGroup[key] ?? 0),
+      weeksUsed: (prev && prev.weeks_used != null) ? prev.weeks_used : 0
+    };
+  });
+
+  const offMap = {};
+  empData.forEach(({ key }) => offMap[key] = new Set());
+  // 이전 달 마지막 주 overflow 휴무 선반영 (calendar 표시용)
+  if (prevOverflowOff && prefixDays > 0) {
+    Object.entries(prevOverflowOff).forEach(([k, v]) => {
+      if (!offMap[k]) return;
+      const days = Array.isArray(v) ? v : (v.off_days || []);
+      days.forEach(d => offMap[k].add(d));
+    });
+  }
+
+  // ══ PHASE 1: 3주 고정쌍 + 1주 Flex 휴무 배정 ══
+  // • 3주: 현재 쌍(월화/목금/토일) 그대로
+  // • 4주(flex): 비연속 2일 개별 배정 (3일 연속 방지)
+  // • flex 이후 랜덤으로 다른 쌍 선택 → 매 사이클 동료가 달라짐
   weeks.forEach(wDays => {
-    empData.forEach(({ key, startDay, extEndDay, hireDow, isHireMonth, daysPerWeek }) => {
+    const flexOff = {}; // 이번 주 flex 지점별 날짜 카운트 (균등화)
+
+    empData.forEach(({ key, emp, startDay, extEndDay, hireDow, isHireMonth, daysPerWeek }) => {
+      const state = empState[key];
+      const br = mergedBranch(emp.branch);
       const isHireWeek = isHireMonth && startDay >= wDays[0] && startDay <= wDays[6];
+
       if (isHireWeek) {
-        // 입사 주: 입사일+3일 이후 비수요일에서 FW5 기준 n일 배정
+        // 입사 주: 입사일+3일 이후 비수요일에서 nOff일 배정, 상태 유지
         const tbl = daysPerWeek <= 4 ? FW4 : FW5;
         const nOff = tbl[hireDow] || 0;
         const cands = wDays.filter(d =>
           d > startDay + 2 && d <= extEndDay && new Date(y, m-1, d).getDay() !== 3
         );
         cands.slice(0, nOff).forEach(d => { if (!offMap[key].has(d)) offMap[key].add(d); });
-      } else {
-        // 정규 주: 그룹 요일 쌍 배정
-        const [dow1, dow2] = PAIR_DOWS[empGroup[key] ?? 0];
+
+      } else if (state.weeksUsed < 3) {
+        // 정규 주: 현재 쌍 배정
+        const [dow1, dow2] = PAIR_DOWS[state.pairIdx];
         wDays.forEach(d => {
           if (d < startDay || d > extEndDay) return;
           const dow = new Date(y, m-1, d).getDay();
           if ((dow === dow1 || dow === dow2) && !offMap[key].has(d)) offMap[key].add(d);
         });
+        state.weeksUsed++;
+
+      } else {
+        // Flex 주 (3주 소진): 비연속 2일 개별 배정 후 다음 쌍으로 교체
+        const others = [0, 1, 2].filter(p => p !== state.pairIdx);
+        const nextPairIdx = others[Math.floor(Math.random() * others.length)];
+
+        // 금지 요일: 수요일(3) + 3일 연속 경계 방지
+        // prev=토일(2) → 이번 주 월(1): 토·일·월 3연속
+        // next=월화(0) → 이번 주 일(0): 일·월·화 3연속
+        const forbidden = new Set([3]);
+        if (state.pairIdx === 2) forbidden.add(1);
+        if (nextPairIdx  === 0) forbidden.add(0);
+
+        const avail = wDays.filter(d => {
+          if (d < startDay || d > extEndDay) return false;
+          return !forbidden.has(new Date(y, m-1, d).getDay()) && !offMap[key].has(d);
+        });
+
+        if (!flexOff[br]) { flexOff[br] = {}; wDays.forEach(d => { flexOff[br][d] = 0; }); }
+
+        // 비연속 2일 중 지점 균등화 점수 최소 조합 선택
+        let best = null, bestScore = Infinity;
+        for (let i = 0; i < avail.length; i++) {
+          for (let j = i + 1; j < avail.length; j++) {
+            const d1 = avail[i], d2 = avail[j];
+            if (Math.abs(d1 - d2) === 1) continue; // 인접(연속) 제외
+            const score = (flexOff[br][d1] || 0) + (flexOff[br][d2] || 0);
+            if (score < bestScore) { bestScore = score; best = [d1, d2]; }
+          }
+        }
+        if (best) best.forEach(d => { offMap[key].add(d); flexOff[br][d]++; });
+
+        state.pairIdx   = nextPairIdx;
+        state.weeksUsed = 0;
       }
     });
   });
@@ -1619,14 +1675,15 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   }
 
   // ══ schData 구성 ══
-  // 다음달 초 넘침 휴무 수집 (다음달 buildMonthSchedule에 prevOverflowOff로 전달)
+  // overflow: 다음달 초 휴무일 + 직원 사이클 상태 (pair_idx, weeks_used)
   const overflowOff = {};
-  if (extraDays > 0) {
-    empData.forEach(({ key }) => {
-      const over = [...offMap[key]].filter(d => d > daysInMonth).map(d => d - daysInMonth);
-      if (over.length > 0) overflowOff[key] = over;
-    });
-  }
+  empData.forEach(({ key }) => {
+    const state = empState[key];
+    const over = extraDays > 0
+      ? [...offMap[key]].filter(d => d > daysInMonth).map(d => d - daysInMonth)
+      : [];
+    overflowOff[key] = { off_days: over, pair_idx: state.pairIdx, weeks_used: state.weeksUsed };
+  });
 
   const result = {};
   empData.forEach(({ key, emp, storeHours, slots }) => {
@@ -1641,22 +1698,33 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
       day_types: {}
     };
   });
-  if (Object.keys(overflowOff).length > 0) result.__overflow = overflowOff;
+  result.__overflow = overflowOff; // 항상 저장 (다음달 상태 복원용)
   return result;
 }
 
-// 이전 달 마지막 주 넘침 휴무를 로컬스토리지에서 읽어 반환
+// 이전 달 overflow 데이터(휴무일 + 사이클 상태)를 로컬스토리지에서 읽어 반환
 function getPrevOverflowOff(y, m) {
   const fDow = new Date(y, m-1, 1).getDay();
   const fMon = fDow === 0 ? 2 : (fDow === 1 ? 1 : (2 + 7 - fDow));
-  if (fMon <= 1) return null; // 이 달이 월요일 시작이면 넘침 없음
+  const hasPrefix = fMon > 1;
   const py = m === 1 ? y - 1 : y;
   const pm = m === 1 ? 12 : m - 1;
   const prev = loadLs(py, pm);
   if (!prev || !prev.__overflow) return null;
   const r = {};
-  Object.entries(prev.__overflow).forEach(([k, days]) => { r[k] = new Set(days); });
-  return r;
+  Object.entries(prev.__overflow).forEach(([k, v]) => {
+    if (Array.isArray(v)) {
+      // 구형식(배열): off_days만, 상태 없음
+      r[k] = { off_days: hasPrefix ? new Set(v) : new Set(), pair_idx: null, weeks_used: null };
+    } else {
+      r[k] = {
+        off_days:   hasPrefix ? new Set(v.off_days || []) : new Set(),
+        pair_idx:   v.pair_idx   ?? null,
+        weeks_used: v.weeks_used ?? null
+      };
+    }
+  });
+  return Object.keys(r).length > 0 ? r : null;
 }
 
 function initMonth() {
