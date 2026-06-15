@@ -261,6 +261,24 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                 if lod > 0:
                     off_map[k].add(lod - days_in_prev)
 
+    # prefix_days 연속 제한: 달 초 첫 월요일 이전 공백 기간에 연속 초과 방지
+    if prefix_days > 0:
+        prefix_range = list(range(1, first_monday))
+        for ed in emp_data:
+            key = ed['key']
+            if ed['start_day'] >= first_monday: continue
+            while True:
+                prev_all = sorted(d for d in off_map[key] if d < first_monday)
+                last_off = prev_all[-1] if prev_all else 0
+                must_by = last_off + 5
+                if must_by < 1: break
+                cands = [d for d in prefix_range
+                         if d >= ed['start_day'] and d <= must_by
+                         and day_weekday(d) != 2
+                         and d not in off_map[key]]
+                if not cands: break
+                off_map[key].add(cands[-1])
+
     # ══ PHASE 1: 3주 고정쌍 + 1주 Flex 휴무 배정 ══
     # 3주: 현재 쌍(월화/목금/토일) 고정 (주5일=2일, 주4일=쌍2일+추가1일)
     # 4주(flex): 주5일=비연속2일, 주4일=비연속3일 배정 (3일 연속 방지)

@@ -1615,6 +1615,27 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
     });
   }
 
+  // prefix 기간 연속 출근 제한: 첫 월요일 이전에 5일 이내 휴무 보장
+  if (prefixDays > 0) {
+    const prefixRange = Array.from({length: firstMonday - 1}, (_, i) => i + 1);
+    empData.forEach(({ key, startDay }) => {
+      if (startDay >= firstMonday) return;
+      while (true) {
+        const prevAll = [...offMap[key]].filter(d => d < firstMonday).sort((a, b) => a - b);
+        const lastOff = prevAll.length > 0 ? prevAll[prevAll.length - 1] : 0;
+        const mustBy = lastOff + 5;
+        if (mustBy < 1) break;
+        const cands = prefixRange.filter(d =>
+          d >= startDay && d <= mustBy &&
+          new Date(y, m - 1, d).getDay() !== 3 &&
+          !offMap[key].has(d)
+        );
+        if (cands.length === 0) break;
+        offMap[key].add(cands[cands.length - 1]);
+      }
+    });
+  }
+
   // ══ PHASE 1: 3주 고정쌍 + 1주 Flex 휴무 배정 ══
   // • 3주: 현재 쌍(월화/목금/토일) 그대로
   // • 3주: 쌍 고정 (주5일=2일, 주4일=쌍2일+추가1일)
