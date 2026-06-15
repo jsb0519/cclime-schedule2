@@ -1699,15 +1699,18 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
         // 주4일제=3일, 주5일제=2일 비연속 배정 (3일 연속 방지)
         const nOff = daysPerWeek <= 4 ? 3 : 2;
 
-        // 연속 출근 5일 제한: 마지막 휴무 이후 5일 이내에 반드시 1일 포함
+        // 연속 출근 5일 제한: must_by(마지막 휴무+5) 이전에 최소 1일 포함
+        // forced: candsBefore 중 score 최소이면서 가장 늦은 날 우선 (쏠림 방지)
         const prevOffs = [...offMap[key]].filter(d => d < wDays[0]);
         const lastOff = prevOffs.length > 0 ? Math.max(...prevOffs) : 0;
+        const mustBy = lastOff > 0 ? lastOff + 5 : 0;
+        const candsBefore = mustBy > 0 ? avail.filter(d => d <= mustBy) : [];
         let forced = null;
-        if (lastOff > 0) {
-          const mustBy = lastOff + 5;
-          const candsBefore = avail.filter(d => d <= mustBy);
+        if (mustBy > 0) {
           if (candsBefore.length > 0) {
-            forced = candsBefore.reduce((a, b) => (flexOff[br][a]||0) <= (flexOff[br][b]||0) ? a : b);
+            const minSc = Math.min(...candsBefore.map(d => flexOff[br][d] || 0));
+            const bestC = candsBefore.filter(d => (flexOff[br][d] || 0) === minSc);
+            forced = bestC[bestC.length - 1]; // score 같으면 가장 늦은 날
           } else if (avail.length > 0) {
             forced = avail[0];
           }
@@ -1715,6 +1718,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
 
         let best = null, bestScore = Infinity;
         if (forced !== null) {
+          // avail 전체가 must_by 이후 → 첫날 강제 포함
           const rest = avail.filter(d => d !== forced && Math.abs(d - forced) > 1);
           if (nOff === 2) {
             for (const d2 of rest) {
@@ -1732,14 +1736,14 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
               }
             }
           }
-        }
-
-        if (best === null) {
+        } else {
+          // 균등화 우선 + must_by 제약(조합 내 최소 1일이 must_by 이전)
           if (nOff === 2) {
             for (let i = 0; i < avail.length; i++) {
               for (let j = i + 1; j < avail.length; j++) {
                 const d1 = avail[i], d2 = avail[j];
                 if (Math.abs(d1 - d2) === 1) continue;
+                if (mustBy > 0 && d1 > mustBy && d2 > mustBy) continue;
                 const score = (flexOff[br][d1] || 0) + (flexOff[br][d2] || 0);
                 if (score < bestScore) { bestScore = score; best = [d1, d2]; }
               }
@@ -1750,6 +1754,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
                 for (let k = j + 1; k < avail.length; k++) {
                   const d1 = avail[i], d2 = avail[j], d3 = avail[k];
                   const adj = (Math.abs(d1-d2)===1?1:0) + (Math.abs(d2-d3)===1?1:0);
+                  if (mustBy > 0 && d1 > mustBy && d2 > mustBy && d3 > mustBy) continue;
                   const score = (flexOff[br][d1]||0)+(flexOff[br][d2]||0)+(flexOff[br][d3]||0)+adj*100;
                   if (score < bestScore) { bestScore = score; best = [d1, d2, d3]; }
                 }
