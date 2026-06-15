@@ -277,14 +277,20 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
             pair_idx = emp_state[key]['pair_idx']
             first_pair_off = first_monday + PAIR_FIRST_OFF_OFFSETS[pair_idx]
             while True:
-                prev_all = sorted(d for d in off_map[key] if d < first_pair_off)
-                last_off = prev_all[-1] if prev_all else 0
-                consec = first_pair_off - last_off - 1
-                if consec <= 5: break
-                must_by = last_off + 5
-                if must_by < 1: break
+                all_offs = sorted(d for d in off_map[key] if d < first_pair_off)
+                if not all_offs:
+                    max_gap, gap_start = first_pair_off - 1, 0
+                else:
+                    pairs_seq = list(zip(all_offs[:-1], all_offs[1:])) + [(all_offs[-1], first_pair_off)]
+                    max_gap, gap_start = 0, 0
+                    for a, b in pairs_seq:
+                        g = b - a - 1
+                        if g > max_gap:
+                            max_gap, gap_start = g, a
+                if max_gap <= 5: break
+                must_by = gap_start + 5
                 cands = [d for d in prefix_range
-                         if d >= ed['start_day'] and d <= must_by
+                         if d >= ed['start_day'] and gap_start < d <= must_by
                          and day_weekday(d) != 2
                          and d not in off_map[key]]
                 if not cands: break
@@ -395,45 +401,77 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                     elif avail:
                         forced = avail[0]
 
-                best, best_score = None, float('inf')
-                if forced is not None:
-                    rest = [d for d in avail if d != forced and abs(d - forced) > 1]
-                    if n_off == 2:
-                        for d2 in rest:
-                            score = flex_off[br].get(forced, 0) + flex_off[br].get(d2, 0)
-                            if score < best_score:
-                                best_score, best = score, (forced, d2)
-                        if best is None and rest:
-                            best = (forced, rest[-1])
-                    else:
-                        for i in range(len(rest)):
-                            for j in range(i+1, len(rest)):
-                                d2, d3 = rest[i], rest[j]
-                                adj = (1 if abs(d2-d3)==1 else 0)
-                                score = (flex_off[br].get(forced,0) + flex_off[br].get(d2,0)
-                                         + flex_off[br].get(d3,0)) + adj * 100
-                                if score < best_score:
-                                    best_score, best = score, (forced, d2, d3)
+                # 다음 정규 쌍 첫 휴무까지 연속 제한: flex 마지막 날이 충분히 늦어야 함
+                next_pair_first_off = w_days[-1] + 1 + PAIR_FIRST_OFF_OFFSETS[next_pair]
+                must_late_from = next_pair_first_off - 6
 
-                if best is None:
-                    if n_off == 2:
-                        for i in range(len(avail)):
-                            for j in range(i+1, len(avail)):
-                                d1, d2 = avail[i], avail[j]
-                                if abs(d1 - d2) == 1: continue
-                                score = flex_off[br].get(d1, 0) + flex_off[br].get(d2, 0)
-                                if score < best_score:
-                                    best_score, best = score, (d1, d2)
-                    else:
-                        for i in range(len(avail)):
-                            for j in range(i+1, len(avail)):
-                                for k in range(j+1, len(avail)):
-                                    d1, d2, d3 = avail[i], avail[j], avail[k]
-                                    adj = (1 if abs(d1-d2)==1 else 0) + (1 if abs(d2-d3)==1 else 0)
-                                    score = (flex_off[br].get(d1,0) + flex_off[br].get(d2,0)
-                                             + flex_off[br].get(d3,0)) + adj * 100
-                                    if score < best_score:
-                                        best_score, best = score, (d1, d2, d3)
+                def _flex_select(cands_pool, n, req_forced, late_from, flex_cnt):
+                    """강제 조건(req_forced)과 후반 강제(late_from) 만족하는 최적 조합 반환."""
+                    best, best_score = None, float('inf')
+                    if req_forced is not None:
+                        rest = [d for d in cands_pool if d != req_forced and abs(d - req_forced) > 1]
+                        if n == 2:
+                            for d2 in rest:
+                                if max(req_forced, d2) < late_from: continue
+                                s = flex_cnt.get(req_forced, 0) + flex_cnt.get(d2, 0)
+                                if s < best_score: best_score, best = s, (req_forced, d2)
+                            if best is None:
+                                for d2 in rest:
+                                    s = flex_cnt.get(req_forced, 0) + flex_cnt.get(d2, 0)
+                                    if s < best_score: best_score, best = s, (req_forced, d2)
+                            if best is None and rest:
+                                best = (req_forced, rest[-1])
+                        else:
+                            for i in range(len(rest)):
+                                for j in range(i+1, len(rest)):
+                                    d2, d3 = rest[i], rest[j]
+                                    if max(req_forced, d2, d3) < late_from: continue
+                                    adj = 1 if abs(d2-d3)==1 else 0
+                                    s = (flex_cnt.get(req_forced,0)+flex_cnt.get(d2,0)+flex_cnt.get(d3,0))+adj*100
+                                    if s < best_score: best_score, best = s, (req_forced, d2, d3)
+                            if best is None:
+                                for i in range(len(rest)):
+                                    for j in range(i+1, len(rest)):
+                                        d2, d3 = rest[i], rest[j]
+                                        adj = 1 if abs(d2-d3)==1 else 0
+                                        s = (flex_cnt.get(req_forced,0)+flex_cnt.get(d2,0)+flex_cnt.get(d3,0))+adj*100
+                                        if s < best_score: best_score, best = s, (req_forced, d2, d3)
+                    if best is None:
+                        if n == 2:
+                            for i in range(len(cands_pool)):
+                                for j in range(i+1, len(cands_pool)):
+                                    d1, d2 = cands_pool[i], cands_pool[j]
+                                    if abs(d1-d2) == 1: continue
+                                    if max(d1, d2) < late_from: continue
+                                    s = flex_cnt.get(d1,0) + flex_cnt.get(d2,0)
+                                    if s < best_score: best_score, best = s, (d1, d2)
+                            if best is None:
+                                for i in range(len(cands_pool)):
+                                    for j in range(i+1, len(cands_pool)):
+                                        d1, d2 = cands_pool[i], cands_pool[j]
+                                        if abs(d1-d2) == 1: continue
+                                        s = flex_cnt.get(d1,0) + flex_cnt.get(d2,0)
+                                        if s < best_score: best_score, best = s, (d1, d2)
+                        else:
+                            for i in range(len(cands_pool)):
+                                for j in range(i+1, len(cands_pool)):
+                                    for k in range(j+1, len(cands_pool)):
+                                        d1, d2, d3 = cands_pool[i], cands_pool[j], cands_pool[k]
+                                        if max(d1, d2, d3) < late_from: continue
+                                        adj = (1 if abs(d1-d2)==1 else 0)+(1 if abs(d2-d3)==1 else 0)
+                                        s = (flex_cnt.get(d1,0)+flex_cnt.get(d2,0)+flex_cnt.get(d3,0))+adj*100
+                                        if s < best_score: best_score, best = s, (d1, d2, d3)
+                            if best is None:
+                                for i in range(len(cands_pool)):
+                                    for j in range(i+1, len(cands_pool)):
+                                        for k in range(j+1, len(cands_pool)):
+                                            d1, d2, d3 = cands_pool[i], cands_pool[j], cands_pool[k]
+                                            adj = (1 if abs(d1-d2)==1 else 0)+(1 if abs(d2-d3)==1 else 0)
+                                            s = (flex_cnt.get(d1,0)+flex_cnt.get(d2,0)+flex_cnt.get(d3,0))+adj*100
+                                            if s < best_score: best_score, best = s, (d1, d2, d3)
+                    return best
+
+                best = _flex_select(avail, n_off, forced, must_late_from, flex_off[br])
 
                 if best:
                     for d in best:

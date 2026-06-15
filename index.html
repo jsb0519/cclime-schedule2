@@ -1629,14 +1629,22 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
       const pairIdx = empState[key].pairIdx;
       const firstPairOff = firstMonday + PAIR_FIRST_OFF_OFFSETS[pairIdx];
       while (true) {
-        const prevAll = [...offMap[key]].filter(d => d < firstPairOff).sort((a, b) => a - b);
-        const lastOff = prevAll.length > 0 ? prevAll[prevAll.length - 1] : 0;
-        const consec = firstPairOff - lastOff - 1;
-        if (consec <= 5) break;
-        const mustBy = lastOff + 5;
-        if (mustBy < 1) break;
+        const allOffs = [...offMap[key]].filter(d => d < firstPairOff).sort((a, b) => a - b);
+        let maxGap = 0, gapStart = 0;
+        if (allOffs.length === 0) {
+          maxGap = firstPairOff - 1;
+        } else {
+          const pairsSeq = allOffs.slice(0, -1).map((a, i) => [a, allOffs[i + 1]]);
+          pairsSeq.push([allOffs[allOffs.length - 1], firstPairOff]);
+          for (const [a, b] of pairsSeq) {
+            const g = b - a - 1;
+            if (g > maxGap) { maxGap = g; gapStart = a; }
+          }
+        }
+        if (maxGap <= 5) break;
+        const mustBy = gapStart + 5;
         const cands = prefixRange.filter(d =>
-          d >= startDay && d <= mustBy &&
+          d >= startDay && d > gapStart && d <= mustBy &&
           new Date(y, m - 1, d).getDay() !== 3 &&
           !offMap[key].has(d)
         );
@@ -1756,50 +1764,70 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
           }
         }
 
-        let best = null, bestScore = Infinity;
-        if (forced !== null) {
-          const rest = avail.filter(d => d !== forced && Math.abs(d - forced) > 1);
-          if (nOff === 2) {
-            for (const d2 of rest) {
-              const score = (flexOff[br][forced]||0) + (flexOff[br][d2]||0);
-              if (score < bestScore) { bestScore = score; best = [forced, d2]; }
-            }
-            if (best === null && rest.length > 0) best = [forced, rest[rest.length-1]];
-          } else {
-            for (let i = 0; i < rest.length; i++) {
-              for (let j = i+1; j < rest.length; j++) {
-                const d2 = rest[i], d3 = rest[j];
-                const adj = Math.abs(d2-d3) === 1 ? 1 : 0;
-                const score = (flexOff[br][forced]||0)+(flexOff[br][d2]||0)+(flexOff[br][d3]||0)+adj*100;
-                if (score < bestScore) { bestScore = score; best = [forced, d2, d3]; }
-              }
-            }
-          }
-        }
+        // 다음 정규 쌍 첫 휴무까지 연속 제한: flex 마지막 날이 충분히 늦어야 함
+        const nextPairFirstOff = wDays[wDays.length - 1] + 1 + PAIR_FIRST_OFF_OFFSETS[nextPairIdx];
+        const mustLateFrom = nextPairFirstOff - 6;
 
-        if (best === null) {
-          if (nOff === 2) {
-            for (let i = 0; i < avail.length; i++) {
-              for (let j = i + 1; j < avail.length; j++) {
-                const d1 = avail[i], d2 = avail[j];
-                if (Math.abs(d1 - d2) === 1) continue;
-                const score = (flexOff[br][d1] || 0) + (flexOff[br][d2] || 0);
-                if (score < bestScore) { bestScore = score; best = [d1, d2]; }
-              }
-            }
-          } else {
-            for (let i = 0; i < avail.length; i++) {
-              for (let j = i + 1; j < avail.length; j++) {
-                for (let k = j + 1; k < avail.length; k++) {
-                  const d1 = avail[i], d2 = avail[j], d3 = avail[k];
-                  const adj = (Math.abs(d1-d2)===1?1:0) + (Math.abs(d2-d3)===1?1:0);
-                  const score = (flexOff[br][d1]||0)+(flexOff[br][d2]||0)+(flexOff[br][d3]||0)+adj*100;
-                  if (score < bestScore) { bestScore = score; best = [d1, d2, d3]; }
+        function flexSelect(pool, n, reqForced, lateFrom, cnt) {
+          let best = null, bs = Infinity;
+          const tryCombo = (days) => {
+            const mx = Math.max(...days);
+            if (mx < lateFrom) return;
+            // check adjacency
+            const sorted = [...days].sort((a,b)=>a-b);
+            let adj = 0;
+            for (let i=0;i<sorted.length-1;i++) if(sorted[i+1]-sorted[i]===1) adj++;
+            if (n===2 && adj>0) return;
+            const s = days.reduce((a,d)=>a+(cnt[d]||0),0) + adj*100;
+            if (s < bs) { bs=s; best=[...days]; }
+          };
+          const runSearch = (requireLate) => {
+            if (reqForced !== null) {
+              const rest = pool.filter(d => d !== reqForced && Math.abs(d-reqForced)>1);
+              if (n === 2) {
+                for (const d2 of rest) {
+                  if (requireLate && Math.max(reqForced,d2)<lateFrom) continue;
+                  const s=(cnt[reqForced]||0)+(cnt[d2]||0);
+                  if(s<bs){bs=s;best=[reqForced,d2];}
+                }
+                if(best===null && rest.length>0) best=[reqForced,rest[rest.length-1]];
+              } else {
+                for(let i=0;i<rest.length;i++) for(let j=i+1;j<rest.length;j++){
+                  const d2=rest[i],d3=rest[j];
+                  if(requireLate&&Math.max(reqForced,d2,d3)<lateFrom)continue;
+                  const adj=Math.abs(d2-d3)===1?1:0;
+                  const s=(cnt[reqForced]||0)+(cnt[d2]||0)+(cnt[d3]||0)+adj*100;
+                  if(s<bs){bs=s;best=[reqForced,d2,d3];}
                 }
               }
             }
-          }
+            if (best===null) {
+              if (n === 2) {
+                for(let i=0;i<pool.length;i++) for(let j=i+1;j<pool.length;j++){
+                  const d1=pool[i],d2=pool[j];
+                  if(Math.abs(d1-d2)===1)continue;
+                  if(requireLate&&Math.max(d1,d2)<lateFrom)continue;
+                  const s=(cnt[d1]||0)+(cnt[d2]||0);
+                  if(s<bs){bs=s;best=[d1,d2];}
+                }
+              } else {
+                for(let i=0;i<pool.length;i++) for(let j=i+1;j<pool.length;j++) for(let k=j+1;k<pool.length;k++){
+                  const d1=pool[i],d2=pool[j],d3=pool[k];
+                  if(requireLate&&Math.max(d1,d2,d3)<lateFrom)continue;
+                  const adj=(Math.abs(d1-d2)===1?1:0)+(Math.abs(d2-d3)===1?1:0);
+                  const s=(cnt[d1]||0)+(cnt[d2]||0)+(cnt[d3]||0)+adj*100;
+                  if(s<bs){bs=s;best=[d1,d2,d3];}
+                }
+              }
+            }
+          };
+          runSearch(true);
+          if (best === null) runSearch(false);
+          return best;
         }
+
+        let best = flexSelect(avail, nOff, forced, mustLateFrom, flexOff[br]);
+
         if (best) best.forEach(d => { offMap[key].add(d); flexOff[br][d]++; });
 
         state.pairIdx   = nextPairIdx;
