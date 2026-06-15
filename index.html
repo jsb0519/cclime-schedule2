@@ -2011,7 +2011,8 @@ function openOrigModal() {
   const orig = buildMonthSchedule(curY, curM, getPrevOverflowOff(curY, curM));
   const days = new Date(curY, curM, 0).getDate();
   const DOW = ['일','월','화','수','목','금','토'];
-  const HOLIDAYS = typeof getHolidays === 'function' ? getHolidays(curY, curM) : {};
+  const monthHolidays = getHolidays(curY); // "MM-DD" 키 형식
+  const hkey = d => String(curM).padStart(2,'0') + '-' + String(d).padStart(2,'0');
 
   // buildTable과 동일한 순서: employees 배열(지점번호→벨트순) 기준
   const bIdx2 = e => { const i = BELT_ORDER.indexOf(e.belt); return i >= 0 ? i : 8; };
@@ -2028,16 +2029,18 @@ function openOrigModal() {
       return !(hy > curY || (hy === curY && hm > curM));
     })
     .sort((a, b) => bIdx2(a) - bIdx2(b));
-  const keys = orderedEmps.map(e => mergedBranch(e.branch) + '||' + e.name)
-    .filter(k => orig[k]);
+  // keys와 filteredEmps는 항상 같은 인덱스로 대응
+  const filteredPairs = orderedEmps
+    .map(e => ({ emp: e, key: mergedBranch(e.branch) + '||' + e.name }))
+    .filter(({ key }) => orig[key]);
 
-  if (keys.length === 0) { alert('해당 지점 데이터가 없습니다.'); return; }
+  if (filteredPairs.length === 0) { alert('해당 지점 데이터가 없습니다.'); return; }
 
   // 헤더
   let head = '<tr><th style="min-width:70px">이름</th>';
   for (let d = 1; d <= days; d++) {
     const dow = new Date(curY, curM - 1, d).getDay();
-    const isHol = HOLIDAYS[d];
+    const isHol = hkey(d) in monthHolidays;
     const cls = isHol ? 'c-sun' : dow === 0 ? 'c-sun' : dow === 6 ? 'c-sat' : '';
     head += `<th class="${cls}">${d}<br>${DOW[dow]}</th>`;
   }
@@ -2045,20 +2048,18 @@ function openOrigModal() {
 
   // 행
   let body = '';
-  for (let ki = 0; ki < keys.length; ki++) {
-    const key = keys[ki];
-    const emp = orderedEmps[ki];
+  for (const { emp, key } of filteredPairs) {
     const sd = orig[key];
     const offSet = new Set((sd.off_days || []).map(Number));
     const empRole = emp && emp.role && emp.role.includes('매니저') ? 'M' : 'B';
     const hd2 = (emp && emp.hire_date) || '';
     let empPrefix = '';
     if (hd2) { const pp = hd2.split('-'); empPrefix = String(pp[0]).slice(2)+'.'+pp[1]; }
-    const empTag = empPrefix ? `${empPrefix}.${emp.name}.${empRole}` : `${(emp&&emp.name)||sd.name||key}.${empRole}`;
+    const empTag = empPrefix ? `${empPrefix}.${emp.name}.${empRole}` : `${emp.name||sd.name}.${empRole}`;
     body += `<tr><td style="text-align:left;padding:3px 7px;font-weight:600">${empTag}</td>`;
     for (let d = 1; d <= days; d++) {
       const dow = new Date(curY, curM - 1, d).getDay();
-      const isHol = HOLIDAYS[d];
+      const isHol = hkey(d) in monthHolidays;
       const isOff = offSet.has(d);
       const holCls = isHol ? 'c-hol' : '';
       if (isOff) {
