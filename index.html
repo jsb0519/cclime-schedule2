@@ -420,8 +420,6 @@ let _branchAdminBranch = null; // 지점 관리자 모드: 해당 지점명
 
 function applyBranchAdminMode(branch) {
   _branchAdminBranch = branch;
-  const dashBtn = document.getElementById('tab-dashboard');
-  if (dashBtn) dashBtn.style.display = 'none';
   setTimeout(() => showTab('schedule'), 0);
   if (employees.length > 0) _applyBranchAdmin(branch);
 }
