@@ -1698,25 +1698,61 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
 
         // 주4일제=3일, 주5일제=2일 비연속 배정 (3일 연속 방지)
         const nOff = daysPerWeek <= 4 ? 3 : 2;
+
+        // 연속 출근 5일 제한: 마지막 휴무 이후 5일 이내에 반드시 1일 포함
+        const prevOffs = [...offMap[key]].filter(d => d < wDays[0]);
+        const lastOff = prevOffs.length > 0 ? Math.max(...prevOffs) : 0;
+        let forced = null;
+        if (lastOff > 0) {
+          const mustBy = lastOff + 5;
+          const candsBefore = avail.filter(d => d <= mustBy);
+          if (candsBefore.length > 0) {
+            forced = candsBefore.reduce((a, b) => (flexOff[br][a]||0) <= (flexOff[br][b]||0) ? a : b);
+          } else if (avail.length > 0) {
+            forced = avail[0];
+          }
+        }
+
         let best = null, bestScore = Infinity;
-        if (nOff === 2) {
-          for (let i = 0; i < avail.length; i++) {
-            for (let j = i + 1; j < avail.length; j++) {
-              const d1 = avail[i], d2 = avail[j];
-              if (Math.abs(d1 - d2) === 1) continue;
-              const score = (flexOff[br][d1] || 0) + (flexOff[br][d2] || 0);
-              if (score < bestScore) { bestScore = score; best = [d1, d2]; }
+        if (forced !== null) {
+          const rest = avail.filter(d => d !== forced && Math.abs(d - forced) > 1);
+          if (nOff === 2) {
+            for (const d2 of rest) {
+              const score = (flexOff[br][forced]||0) + (flexOff[br][d2]||0);
+              if (score < bestScore) { bestScore = score; best = [forced, d2]; }
+            }
+            if (best === null && rest.length > 0) best = [forced, rest[rest.length-1]];
+          } else {
+            for (let i = 0; i < rest.length; i++) {
+              for (let j = i+1; j < rest.length; j++) {
+                const d2 = rest[i], d3 = rest[j];
+                const adj = Math.abs(d2-d3) === 1 ? 1 : 0;
+                const score = (flexOff[br][forced]||0)+(flexOff[br][d2]||0)+(flexOff[br][d3]||0)+adj*100;
+                if (score < bestScore) { bestScore = score; best = [forced, d2, d3]; }
+              }
             }
           }
-        } else {
-          // 주4일제: 비연속 3일 우선 (연속 발생 시 100 페널티)
-          for (let i = 0; i < avail.length; i++) {
-            for (let j = i + 1; j < avail.length; j++) {
-              for (let k = j + 1; k < avail.length; k++) {
-                const d1 = avail[i], d2 = avail[j], d3 = avail[k];
-                const adj = (Math.abs(d1-d2)===1?1:0) + (Math.abs(d2-d3)===1?1:0);
-                const score = (flexOff[br][d1]||0) + (flexOff[br][d2]||0) + (flexOff[br][d3]||0) + adj*100;
-                if (score < bestScore) { bestScore = score; best = [d1, d2, d3]; }
+        }
+
+        if (best === null) {
+          if (nOff === 2) {
+            for (let i = 0; i < avail.length; i++) {
+              for (let j = i + 1; j < avail.length; j++) {
+                const d1 = avail[i], d2 = avail[j];
+                if (Math.abs(d1 - d2) === 1) continue;
+                const score = (flexOff[br][d1] || 0) + (flexOff[br][d2] || 0);
+                if (score < bestScore) { bestScore = score; best = [d1, d2]; }
+              }
+            }
+          } else {
+            for (let i = 0; i < avail.length; i++) {
+              for (let j = i + 1; j < avail.length; j++) {
+                for (let k = j + 1; k < avail.length; k++) {
+                  const d1 = avail[i], d2 = avail[j], d3 = avail[k];
+                  const adj = (Math.abs(d1-d2)===1?1:0) + (Math.abs(d2-d3)===1?1:0);
+                  const score = (flexOff[br][d1]||0)+(flexOff[br][d2]||0)+(flexOff[br][d3]||0)+adj*100;
+                  if (score < bestScore) { bestScore = score; best = [d1, d2, d3]; }
+                }
               }
             }
           }

@@ -343,27 +343,59 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                     flex_off[br] = {d: 0 for d in w_days}
 
                 n_off = 3 if ed['days_per_week'] <= 4 else 2
+
+                # 연속 출근 5일 제한: 마지막 휴무 이후 5일 이내에 반드시 1일 포함
+                prev_offs = [d for d in off_map[key] if d < w_days[0]]
+                last_off = max(prev_offs) if prev_offs else 0
+                forced = None
+                if last_off > 0:
+                    must_by = last_off + 5
+                    cands_before = [d for d in avail if d <= must_by]
+                    if cands_before:
+                        forced = min(cands_before, key=lambda d: flex_off[br].get(d, 0))
+                    elif avail:
+                        forced = avail[0]
+
                 best, best_score = None, float('inf')
-                if n_off == 2:
-                    # 주5일제: 비연속 2일 균등화 조합 선택
-                    for i in range(len(avail)):
-                        for j in range(i+1, len(avail)):
-                            d1, d2 = avail[i], avail[j]
-                            if abs(d1 - d2) == 1: continue
-                            score = flex_off[br].get(d1, 0) + flex_off[br].get(d2, 0)
+                if forced is not None:
+                    rest = [d for d in avail if d != forced and abs(d - forced) > 1]
+                    if n_off == 2:
+                        for d2 in rest:
+                            score = flex_off[br].get(forced, 0) + flex_off[br].get(d2, 0)
                             if score < best_score:
-                                best_score, best = score, (d1, d2)
-                else:
-                    # 주4일제: 비연속 3일 우선 (연속 발생 시 페널티)
-                    for i in range(len(avail)):
-                        for j in range(i+1, len(avail)):
-                            for k in range(j+1, len(avail)):
-                                d1, d2, d3 = avail[i], avail[j], avail[k]
-                                adj = (1 if abs(d1-d2)==1 else 0) + (1 if abs(d2-d3)==1 else 0)
-                                score = (flex_off[br].get(d1,0) + flex_off[br].get(d2,0)
+                                best_score, best = score, (forced, d2)
+                        if best is None and rest:
+                            best = (forced, rest[-1])
+                    else:
+                        for i in range(len(rest)):
+                            for j in range(i+1, len(rest)):
+                                d2, d3 = rest[i], rest[j]
+                                adj = (1 if abs(d2-d3)==1 else 0)
+                                score = (flex_off[br].get(forced,0) + flex_off[br].get(d2,0)
                                          + flex_off[br].get(d3,0)) + adj * 100
                                 if score < best_score:
-                                    best_score, best = score, (d1, d2, d3)
+                                    best_score, best = score, (forced, d2, d3)
+
+                if best is None:
+                    if n_off == 2:
+                        for i in range(len(avail)):
+                            for j in range(i+1, len(avail)):
+                                d1, d2 = avail[i], avail[j]
+                                if abs(d1 - d2) == 1: continue
+                                score = flex_off[br].get(d1, 0) + flex_off[br].get(d2, 0)
+                                if score < best_score:
+                                    best_score, best = score, (d1, d2)
+                    else:
+                        for i in range(len(avail)):
+                            for j in range(i+1, len(avail)):
+                                for k in range(j+1, len(avail)):
+                                    d1, d2, d3 = avail[i], avail[j], avail[k]
+                                    adj = (1 if abs(d1-d2)==1 else 0) + (1 if abs(d2-d3)==1 else 0)
+                                    score = (flex_off[br].get(d1,0) + flex_off[br].get(d2,0)
+                                             + flex_off[br].get(d3,0)) + adj * 100
+                                    if score < best_score:
+                                        best_score, best = score, (d1, d2, d3)
+
                 if best:
                     for d in best:
                         off_map[key].add(d)
