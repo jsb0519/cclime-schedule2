@@ -356,6 +356,10 @@ function applyViewerMode() {
   if(a === 'viewer' || a === 'master' || a === 'branch'){
     document.getElementById('site-lock').style.display='none';
     if(a === 'viewer') setTimeout(applyViewerMode, 0);
+    else if(a === 'branch'){
+      const br = sessionStorage.getItem('branch_admin');
+      if(br) setTimeout(() => applyBranchAdminMode(br), 0);
+    }
   } else {
     setTimeout(()=>document.getElementById('site-pw-input').focus(),80);
   }
@@ -366,22 +370,73 @@ function siteUnlock(){
     sessionStorage.setItem('site_auth','viewer');
     document.getElementById('site-lock').style.display='none';
     applyViewerMode();
-  } else if(typeof MASTER_PASSWORDS !== 'undefined' && MASTER_PASSWORDS.includes(pw)){
+  } else if(MASTER_PASSWORDS.includes(pw)){
     sessionStorage.setItem('site_auth','master');
     document.getElementById('site-lock').style.display='none';
   } else {
-    document.getElementById('site-pw-error').textContent='비밀번호가 올바르지 않습니다.';
-    document.getElementById('site-pw-input').value='';
-    document.getElementById('site-pw-input').focus();
+    const brEntry = Object.entries(BRANCH_PASSWORDS).find(([,p]) => p === pw);
+    if(brEntry){
+      sessionStorage.setItem('site_auth','branch');
+      sessionStorage.setItem('branch_admin', brEntry[0]);
+      document.getElementById('site-lock').style.display='none';
+      applyBranchAdminMode(brEntry[0]);
+    } else {
+      document.getElementById('site-pw-error').textContent='비밀번호가 올바르지 않습니다.';
+      document.getElementById('site-pw-input').value='';
+      document.getElementById('site-pw-input').focus();
+    }
   }
 }
 function siteUnlockAuto(){
   const pw = document.getElementById('site-pw-input').value;
-  const validPw = pw === '2010' || (typeof MASTER_PASSWORDS !== 'undefined' && MASTER_PASSWORDS.includes(pw));
+  const validPw = pw === '2010' || MASTER_PASSWORDS.includes(pw)
+    || Object.values(BRANCH_PASSWORDS).includes(pw);
   if(validPw) siteUnlock();
 }
-const MASTER_PASSWORDS = ['cc0000', 'cclime1616'];
+const MASTER_PASSWORDS = ['cc81616'];
+const BRANCH_PASSWORDS = {
+  '01. 신사본점': 'cc2824',
+  '02. 강남사옥점 03. 강남구청점': 'cc1409',
+  '04. 삼성점': 'cc5506',
+  '05. 선릉점': 'cc5012',
+  '06. 중앙대점': 'cc4657',
+  '07. 홍대점': 'cc3286',
+  '08. 목동점': 'cc2679',
+  '09. 수원점': 'cc9935',
+  '10. 판교점': 'cc2424',
+  '11. 부천점': 'cc7912',
+  '12. 대전시청점': 'cc1520',
+  '13. 대전관저점': 'cc1488',
+  '14. 광주점': 'cc2535',
+  '15. 목포점': 'cc4582',
+  '16. 대구점': 'cc4811',
+  '17. 부산서면점': 'cc9279',
+  '18. 부산센텀점': 'cc1434',
+  '19. 창원점': 'cc4257',
+  '20. 성수점': 'cc9928',
+};
 let _viewerMode = false;
+let _branchAdminBranch = null; // 지점 관리자 모드: 해당 지점명
+
+function applyBranchAdminMode(branch) {
+  _branchAdminBranch = branch;
+  const dashBtn = document.getElementById('tab-dashboard');
+  if (dashBtn) dashBtn.style.display = 'none';
+  setTimeout(() => showTab('schedule'), 0);
+  if (employees.length > 0) _applyBranchAdmin(branch);
+}
+function _applyBranchAdmin(branch) {
+  const sel = document.getElementById('branch-sel');
+  // 지점 관리자: 해당 지점만 선택 가능하게 고정, 드롭다운 비활성화
+  if (!sel.querySelector(`option[value="${branch}"]`)) {
+    sel.innerHTML = `<option value="${branch}">${branch}</option>`;
+  }
+  sel.value = branch;
+  sel.disabled = true;
+  sel.style.pointerEvents = 'none';
+  sel.style.opacity = '0.7';
+  _doBranchChange();
+}
 
 function showBranchLock(branches) {
   const list = document.getElementById('branch-lock-list');
@@ -1882,7 +1937,7 @@ function buildTable() {
 
   // 해당 월 데이터 없으면 안내 메시지
   const hasData = branch
-    ? Object.values(schData).some(v => v.branch === branch)
+    ? Object.values(schData).some(v => mergedBranch(v.branch) === branch)
     : Object.keys(schData).length > 0;
   if (!hasData) {
     document.getElementById('sch-head').innerHTML = '';
@@ -1897,9 +1952,9 @@ function buildTable() {
   const holidays = getHolidays(curY);
 
   let emps = employees.filter(e => {
-    if (branch) return e.branch === branch;
+    if (branch) return mergedBranch(e.branch) === branch;
     if (_checkedBranches === null || _checkedBranches.size === 0) return _checkedBranches === null;
-    return _checkedBranches.has(e.branch);
+    return _checkedBranches.has(mergedBranch(e.branch));
   });
   // 퇴사월이 현재 월보다 이전인 직원 제외
   emps = emps.filter(e => {
@@ -1944,7 +1999,7 @@ function buildTable() {
   let body = '';
   let lastBranch = null;
   emps.forEach(emp => {
-    const key = emp.branch + '||' + emp.name;
+    const key = mergedBranch(emp.branch) + '||' + emp.name;
     const sd = schData[key] || {};
     const belt  = sd.belt || emp.belt || '화이트';
 
@@ -2156,10 +2211,17 @@ function onBranchChange() {
   _doBranchChange();
 }
 function populateBranches() {
-  const branches = [...new Set(employees.map(e=>e.branch))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
+  // mergedBranch 적용 후 중복 제거한 지점 목록
+  const branches = [...new Set(employees.map(e=>mergedBranch(e.branch)))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
   const sel = document.getElementById('branch-sel');
-  sel.innerHTML = '<option value="">전체지점 (보기전용)</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
+
+  if (_branchAdminBranch) {
+    // 지점 관리자 모드: 해당 지점만 고정
+    _applyBranchAdmin(_branchAdminBranch);
+    return;
+  }
   if (_viewerMode) {
+    sel.innerHTML = '<option value="">전체지점 (보기전용)</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
     const stored = sessionStorage.getItem('viewer_branch');
     if (stored && branches.includes(stored)) {
       applyViewerBranch(stored);
@@ -2168,6 +2230,7 @@ function populateBranches() {
     }
     return;
   }
+  sel.innerHTML = '<option value="">전체지점 (보기전용)</option>' + branches.map(b=>`<option value="${b}">${b}</option>`).join('');
   const cur = sel.value;
   if (cur && branches.includes(cur)) sel.value = cur;
   if (_checkedBranches !== null) branches.forEach(b => { if (!_checkedBranches.has(b)) _checkedBranches.add(b); });
