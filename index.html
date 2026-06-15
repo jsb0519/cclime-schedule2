@@ -1600,10 +1600,18 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   empData.forEach(({ key }) => offMap[key] = new Set());
   // 이전 달 마지막 주 overflow 휴무 선반영 (calendar 표시용)
   if (prevOverflowOff && prefixDays > 0) {
+    const prevM = m === 1 ? 12 : m - 1;
+    const prevY = m === 1 ? y - 1 : y;
+    const daysInPrev = new Date(prevY, prevM, 0).getDate();
     Object.entries(prevOverflowOff).forEach(([k, v]) => {
       if (!offMap[k]) return;
       const days = Array.isArray(v) ? v : (v.off_days || []);
       days.forEach(d => offMap[k].add(d));
+      // 이전 달 마지막 휴무일을 음수로 변환해 연속 출근 제한에 활용
+      if (v && !Array.isArray(v)) {
+        const lod = v.last_off_day || 0;
+        if (lod > 0) offMap[k].add(lod - daysInPrev);
+      }
     });
   }
 
@@ -1673,6 +1681,24 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
               (extraOffByBr[br][a] || 0) <= (extraOffByBr[br][b] || 0) ? a : b);
             offMap[key].add(bestD);
             extraOffByBr[br][bestD] = (extraOffByBr[br][bestD] || 0) + 1;
+          }
+        }
+        // 정규 주 연속 출근 5일 제한: 쌍 첫 날이 must_by 초과 시 추가 휴무
+        {
+          const _prevOffs = [...offMap[key]].filter(d => d < wDays[0]);
+          if (_prevOffs.length > 0) {
+            const _lastOff = Math.max(..._prevOffs);
+            const _mustBy = _lastOff + 5;
+            const _pairOffs = [...offMap[key]].filter(d =>
+              d >= wDays[0] && d <= wDays[wDays.length-1] &&
+              (new Date(y,m-1,d).getDay() === dow1 || new Date(y,m-1,d).getDay() === dow2));
+            const _earliest = _pairOffs.length > 0 ? Math.min(..._pairOffs) : wDays[wDays.length-1] + 1;
+            if (_earliest > _mustBy) {
+              const _extra = wDays.filter(d =>
+                d >= startDay && d <= extEndDay && d <= _mustBy &&
+                new Date(y,m-1,d).getDay() !== 3 && !offMap[key].has(d));
+              if (_extra.length > 0) offMap[key].add(_extra[_extra.length - 1]);
+            }
           }
         }
         state.weeksUsed++;
@@ -1804,7 +1830,8 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
     const over = extraDays > 0
       ? [...offMap[key]].filter(d => d > daysInMonth).map(d => d - daysInMonth)
       : [];
-    overflowOff[key] = { off_days: over, pair_idx: state.pairIdx, weeks_used: state.weeksUsed };
+    const lastDayOff = Math.max(0, ...[...offMap[key]].filter(d => d >= 1 && d <= daysInMonth));
+    overflowOff[key] = { off_days: over, last_off_day: lastDayOff, pair_idx: state.pairIdx, weeks_used: state.weeksUsed };
   });
 
   const result = {};
@@ -1816,7 +1843,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
       shift_base_offset: baseOffsetMap[key] || 0,
       rotation_interval: ROT_INTERVAL,
       shift_starts: startsByKeyDay[key] || {},
-      off_days: [...offMap[key]].filter(d => d <= daysInMonth).sort((a, b) => a - b),
+      off_days: [...offMap[key]].filter(d => d >= 1 && d <= daysInMonth).sort((a, b) => a - b),
       day_types: {}
     };
   });
@@ -1840,9 +1867,10 @@ function getPrevOverflowOff(y, m) {
       r[k] = { off_days: hasPrefix ? new Set(v) : new Set(), pair_idx: null, weeks_used: null };
     } else {
       r[k] = {
-        off_days:   hasPrefix ? new Set(v.off_days || []) : new Set(),
-        pair_idx:   v.pair_idx   ?? null,
-        weeks_used: v.weeks_used ?? null
+        off_days:     hasPrefix ? new Set(v.off_days || []) : new Set(),
+        last_off_day: v.last_off_day ?? 0,
+        pair_idx:     v.pair_idx   ?? null,
+        weeks_used:   v.weeks_used ?? null
       };
     }
   });

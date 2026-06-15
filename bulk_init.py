@@ -248,10 +248,18 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
     off_map = {ed['key']:set() for ed in emp_data}
     # 이전 달 마지막 주 overflow 휴무 선반영
     if prev_overflow_off and prefix_days > 0:
+        prev_m = m - 1 if m > 1 else 12
+        prev_y = y if m > 1 else y - 1
+        days_in_prev = calendar.monthrange(prev_y, prev_m)[1]
         for k, v in prev_overflow_off.items():
             if k not in off_map: continue
             days = v if isinstance(v, (set, list)) else v.get('off_days', [])
             off_map[k].update(days)
+            # 이전 달 마지막 휴무일을 음수로 변환해 연속 출근 제한에 활용
+            if isinstance(v, dict):
+                lod = v.get('last_off_day', 0)
+                if lod > 0:
+                    off_map[k].add(lod - days_in_prev)
 
     # ══ PHASE 1: 3주 고정쌍 + 1주 Flex 휴무 배정 ══
     # 3주: 현재 쌍(월화/목금/토일) 고정 (주5일=2일, 주4일=쌍2일+추가1일)
@@ -320,6 +328,23 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                         best_d = min(extra_cands, key=lambda d: extra_off_by_br[br].get(d, 0))
                         off_map[key].add(best_d)
                         extra_off_by_br[br][best_d] = extra_off_by_br[br].get(best_d, 0) + 1
+                # 정규 주 연속 출근 5일 제한: 쌍 첫 날이 must_by 초과 시 추가 휴무
+                _prev_offs = [d for d in off_map[key] if d < w_days[0]]
+                if _prev_offs:
+                    _last_off = max(_prev_offs)
+                    _must_by = _last_off + 5
+                    _pair_offs = [d for d in off_map[key]
+                                  if w_days[0] <= d <= w_days[-1]
+                                  and (day_weekday(d) == wd1 or day_weekday(d) == wd2)]
+                    _earliest = min(_pair_offs) if _pair_offs else w_days[-1] + 1
+                    if _earliest > _must_by:
+                        _extra = [d for d in w_days
+                                  if ed['start_day'] <= d <= ed['ext_end_day']
+                                  and d <= _must_by
+                                  and day_weekday(d) != 2
+                                  and d not in off_map[key]]
+                        if _extra:
+                            off_map[key].add(_extra[-1])
                 state['weeks_used'] += 1
 
             else:
@@ -438,7 +463,8 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
         k = ed['key']
         state = emp_state[k]
         over = [d - days_in_month for d in off_map[k] if d > days_in_month] if extra_days > 0 else []
-        overflow_off[k] = {'off_days': over, 'pair_idx': state['pair_idx'], 'weeks_used': state['weeks_used']}
+        last_day_off = max((d for d in off_map[k] if 1 <= d <= days_in_month), default=0)
+        overflow_off[k] = {'off_days': over, 'last_off_day': last_day_off, 'pair_idx': state['pair_idx'], 'weeks_used': state['weeks_used']}
 
     result = {}
     for ed in emp_data:
@@ -454,7 +480,7 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
             'shift_base_offset': base_offset_map.get(key,0),
             'rotation_interval': ROT_INTERVAL,
             'shift_starts': starts_by_key_day.get(key,{}),
-            'off_days': sorted(d for d in off_map[key] if d <= days_in_month),
+            'off_days': sorted(d for d in off_map[key] if 1 <= d <= days_in_month),
             'day_types': {}
         }
     return result, overflow_off
