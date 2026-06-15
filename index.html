@@ -1617,11 +1617,15 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
 
   // prefix 기간 연속 출근 제한: 첫 쌍 정규 휴무일까지 5일 이내 보장
   // 첫 쌍 정규 휴무일: 월화=firstMonday, 목금=firstMonday+3, 토일=firstMonday+5
+  // 지점별 균등화: 같은 날에 여러 직원이 집중되지 않도록 적게 배정된 날 우선
   const PAIR_FIRST_OFF_OFFSETS = [0, 3, 5];
   if (prefixDays > 0) {
     const prefixRange = Array.from({length: firstMonday - 1}, (_, i) => i + 1);
-    empData.forEach(({ key, startDay }) => {
+    const prefixBrCount = {}; // 지점별 날짜 배정 카운트
+    empData.forEach(({ key, startDay, emp }) => {
       if (startDay >= firstMonday) return;
+      const br = mergedBranch(emp.branch);
+      if (!prefixBrCount[br]) prefixBrCount[br] = {};
       const pairIdx = empState[key].pairIdx;
       const firstPairOff = firstMonday + PAIR_FIRST_OFF_OFFSETS[pairIdx];
       while (true) {
@@ -1637,7 +1641,11 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
           !offMap[key].has(d)
         );
         if (cands.length === 0) break;
-        offMap[key].add(cands[cands.length - 1]);
+        const bestD = cands.reduce((a, b) =>
+          (prefixBrCount[br][a] || 0) <= (prefixBrCount[br][b] || 0) ? a : b
+        );
+        offMap[key].add(bestD);
+        prefixBrCount[br][bestD] = (prefixBrCount[br][bestD] || 0) + 1;
       }
     });
   }

@@ -263,12 +263,17 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
 
     # prefix_days 연속 제한: 달 초 첫 월요일 이전 공백 기간에 연속 초과 방지
     # 연속 판정 범위: 마지막 휴무 ~ 첫 쌍 정규 휴무일 (월화=firstMonday, 목금=+3, 토일=+5)
+    # 지점별 균등화: 같은 날에 여러 직원이 집중되지 않도록 적게 배정된 날 우선
     PAIR_FIRST_OFF_OFFSETS = [0, 3, 5]
     if prefix_days > 0:
         prefix_range = list(range(1, first_monday))
+        prefix_br_count = {}  # 지점별 날짜 배정 카운트
         for ed in emp_data:
             key = ed['key']
             if ed['start_day'] >= first_monday: continue
+            br = ed['emp']['branch']
+            if br not in prefix_br_count:
+                prefix_br_count[br] = {d: 0 for d in prefix_range}
             pair_idx = emp_state[key]['pair_idx']
             first_pair_off = first_monday + PAIR_FIRST_OFF_OFFSETS[pair_idx]
             while True:
@@ -283,7 +288,9 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                          and day_weekday(d) != 2
                          and d not in off_map[key]]
                 if not cands: break
-                off_map[key].add(cands[-1])
+                best_d = min(cands, key=lambda d: prefix_br_count[br].get(d, 0))
+                off_map[key].add(best_d)
+                prefix_br_count[br][best_d] = prefix_br_count[br].get(best_d, 0) + 1
 
     # ══ PHASE 1: 3주 고정쌍 + 1주 Flex 휴무 배정 ══
     # 3주: 현재 쌍(월화/목금/토일) 고정 (주5일=2일, 주4일=쌍2일+추가1일)
