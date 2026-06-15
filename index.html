@@ -1660,6 +1660,27 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
           const dow = new Date(y, m-1, d).getDay();
           if ((dow === dow1 || dow === dow2) && !offMap[key].has(d)) offMap[key].add(d);
         });
+        // 연속 출근 5일 제한: 쌍 배정 후 초과 시 추가 휴무 1일
+        { const _prevOffs = [...offMap[key]].filter(d => d < wDays[0]);
+          if (_prevOffs.length > 0) {
+            const _lastOff = Math.max(..._prevOffs);
+            const _mustBy  = _lastOff + 5;
+            const _pairOffs = wDays.filter(d => {
+              const dow = new Date(y, m-1, d).getDay();
+              return offMap[key].has(d) && (dow === dow1 || dow === dow2);
+            });
+            const _earliest = _pairOffs.length > 0 ? Math.min(..._pairOffs) : wDays[wDays.length-1]+1;
+            if (_earliest > _mustBy) {
+              const _extra = wDays.filter(d => {
+                if (d < startDay || d > extEndDay) return false;
+                if (d > _mustBy) return false;
+                if (new Date(y, m-1, d).getDay() === 3) return false; // 수요일
+                return !offMap[key].has(d);
+              });
+              if (_extra.length > 0) offMap[key].add(_extra[_extra.length - 1]); // 가장 늦은 날
+            }
+          }
+        }
         // 주4일제: 쌍 이외 추가 1일 배정 (수요일·쌍 요일 제외, 지점 내 균등)
         if (daysPerWeek <= 4) {
           if (!extraOffByBr[br]) extraOffByBr[br] = {};
