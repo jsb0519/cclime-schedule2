@@ -2013,9 +2013,23 @@ function openOrigModal() {
   const DOW = ['일','월','화','수','목','금','토'];
   const HOLIDAYS = typeof getHolidays === 'function' ? getHolidays(curY, curM) : {};
 
-  // 해당 지점 직원만 필터
-  const keys = Object.keys(orig).filter(k => k !== '__overflow' && orig[k].branch === branch)
-    .sort((a, b) => (orig[a].name || '').localeCompare(orig[b].name || '', 'ko'));
+  // buildTable과 동일한 순서: employees 배열(지점번호→벨트순) 기준
+  const bIdx2 = e => { const i = BELT_ORDER.indexOf(e.belt); return i >= 0 ? i : 8; };
+  const orderedEmps = employees
+    .filter(e => mergedBranch(e.branch) === branch)
+    .filter(e => {
+      if (!e.exit_date || e.exit_date.length < 10) return true;
+      const [ey, em] = e.exit_date.split('-').map(Number);
+      return !(ey < curY || (ey === curY && em < curM));
+    })
+    .filter(e => {
+      if (!e.hire_date || e.hire_date.length < 7) return true;
+      const [hy, hm] = e.hire_date.split('-').map(Number);
+      return !(hy > curY || (hy === curY && hm > curM));
+    })
+    .sort((a, b) => bIdx2(a) - bIdx2(b));
+  const keys = orderedEmps.map(e => mergedBranch(e.branch) + '||' + e.name)
+    .filter(k => orig[k]);
 
   if (keys.length === 0) { alert('해당 지점 데이터가 없습니다.'); return; }
 
@@ -2031,10 +2045,17 @@ function openOrigModal() {
 
   // 행
   let body = '';
-  for (const key of keys) {
+  for (let ki = 0; ki < keys.length; ki++) {
+    const key = keys[ki];
+    const emp = orderedEmps[ki];
     const sd = orig[key];
     const offSet = new Set((sd.off_days || []).map(Number));
-    body += `<tr><td style="text-align:left;padding:3px 7px;font-weight:600">${sd.name || key}</td>`;
+    const empRole = emp && emp.role && emp.role.includes('매니저') ? 'M' : 'B';
+    const hd2 = (emp && emp.hire_date) || '';
+    let empPrefix = '';
+    if (hd2) { const pp = hd2.split('-'); empPrefix = String(pp[0]).slice(2)+'.'+pp[1]; }
+    const empTag = empPrefix ? `${empPrefix}.${emp.name}.${empRole}` : `${(emp&&emp.name)||sd.name||key}.${empRole}`;
+    body += `<tr><td style="text-align:left;padding:3px 7px;font-weight:600">${empTag}</td>`;
     for (let d = 1; d <= days; d++) {
       const dow = new Date(curY, curM - 1, d).getDay();
       const isHol = HOLIDAYS[d];
