@@ -159,6 +159,7 @@ def fetch_employees():
 
 # ── 스케줄 생성 (JS buildMonthSchedule 재현) ─────────────────────────
 def build_month_schedule(employees, y, m, prev_overflow_off=None):
+    random.seed(y * 100 + m)  # 동일 연월은 항상 동일 결과 보장
     days_in_month = calendar.monthrange(y, m)[1]
 
     # 월 경계 주 처리: 첫 월요일 / 마지막 주 일요일까지 연장
@@ -537,61 +538,129 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
         }
     return result, overflow_off
 
+# ── overflow Firebase 저장/로드 ──────────────────────────────────────
+def fb_overflow_url(y, m):
+    return f"{FB_BASE}/overflow/{y}_{str(m).zfill(2)}.json"
+
+def load_overflow(y, m):
+    """Firebase에서 이전 달 overflow 로드. 없으면 None 반환."""
+    try:
+        _, text = http_request(fb_overflow_url(y, m))
+        data = json.loads(text)
+        if not data:
+            return None
+        result = {}
+        for safe_k, v in data.items():
+            orig_k = v.pop('_key', safe_k)  # 저장 시 보존한 원본 키 복원
+            result[orig_k] = {**v, 'off_days': set(v.get('off_days', []))}
+        return result
+    except Exception as e:
+        print(f"  ⚠ overflow {y}/{m:02d} 로드 실패: {e}")
+        return None
+
+def save_overflow(y, m, overflow_off):
+    """현재 달 overflow를 Firebase에 저장. key의 특수문자를 fb_safe로 변환."""
+    data = {}
+    for k, v in overflow_off.items():
+        data[fb_safe(k)] = {'_key': k, **v, 'off_days': sorted(v['off_days'])}
+    try:
+        status, _ = http_request(fb_overflow_url(y, m), method='PUT', data=data)
+        return status == 200
+    except Exception as e:
+        print(f"  ⚠ overflow {y}/{m:02d} 저장 실패: {e}")
+        return False
+
+# ── 단일 월 생성 및 업로드 ─────────────────────────────────────────
+def run_month(y, m, employees, branches, prev_overflow=None):
+    """특정 달 근무표 생성·업로드. overflow_off 반환."""
+    if prev_overflow is None:
+        prev_y, prev_m = (y, m-1) if m > 1 else (y-1, 12)
+        print(f"  이전 overflow 로드 중 ({prev_y}/{prev_m:02d})...", end=' ')
+        prev_overflow = load_overflow(prev_y, prev_m)
+        print(f"{len(prev_overflow)}명" if prev_overflow else "없음 (초기값 사용)")
+
+    print(f"\n━━ {y}년 {m}월 근무표 생성 ━━")
+
+    # 기존 데이터 삭제
+    try:
+        status, _ = http_request(fb_month_url(y, m), method='DELETE')
+        print(f"  기존 데이터 삭제 → HTTP {status}")
+    except Exception as e:
+        print(f"  삭제 실패: {e}")
+
+    all_data, overflow_off = build_month_schedule(employees, y, m, prev_overflow)
+
+    # overflow 저장
+    ok_ov = save_overflow(y, m, overflow_off)
+    print(f"  overflow 저장 → {'완료' if ok_ov else '실패'}")
+
+    # 지점별 업로드
+    by_branch = {}
+    for safe_key, entry in all_data.items():
+        if isinstance(entry, dict) and 'branch' in entry:
+            by_branch.setdefault(entry['branch'], {})[safe_key] = entry
+
+    ok = err = skip = 0
+    for branch in branches:
+        if branch not in by_branch:
+            skip += 1; continue
+        url = fb_branch_url(y, m, branch)
+        try:
+            status, _ = http_request(url, method='PUT', data=by_branch[branch])
+            mark = '✓' if status == 200 else f'HTTP{status}'
+            print(f"  {branch}: {mark} ({len(by_branch[branch])}명)")
+            ok += 1
+        except Exception as e:
+            print(f"  {branch}: 오류 — {e}")
+            err += 1
+
+    print(f"  → 완료 {ok}개 / 오류 {err}개 / 스킵 {skip}개")
+    return overflow_off
+
 # ── 메인 ─────────────────────────────────────────────────────────────
 def main():
+    import sys
+    from datetime import datetime, timezone, timedelta
+
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+    args = sys.argv[1:]
+
     print("직원 데이터 로드 중...")
     employees = fetch_employees()
     branches = sorted(
         set(merged_branch(e['branch']) for e in employees),
         key=lambda b: int(re.match(r'(\d+)', b).group(1)) if re.match(r'(\d+)', b) else 999
     )
-    print(f"  → {len(employees)}명 / {len(branches)}개 지점 로드됨\n")
+    print(f"  → {len(employees)}명 / {len(branches)}개 지점 로드됨")
 
-    # 1. 4~8월 전체 삭제 (구형 키 잔존 방지)
-    print("━━ 4~8월 Firebase 데이터 삭제 ━━")
-    for y, m in [(2026,4), (2026,5), (2026,6), (2026,7), (2026,8)]:
-        url = fb_month_url(y, m)
-        try:
-            status, _ = http_request(url, method='DELETE')
-            print(f"  DELETE {y}년 {m}월 → HTTP {status}")
-        except Exception as e:
-            print(f"  DELETE {y}년 {m}월 → 오류: {e}")
+    # --rebuild [start_y start_m [end_y end_m]]: 지정 달부터 체인 재구축
+    if args and args[0] == '--rebuild':
+        start_y = int(args[1]) if len(args) > 1 else 2026
+        start_m = int(args[2]) if len(args) > 2 else 7
+        end_y   = int(args[3]) if len(args) > 3 else now.year
+        end_m   = int(args[4]) if len(args) > 4 else now.month
+        print(f"\n재구축 모드: {start_y}/{start_m:02d} → {end_y}/{end_m:02d}\n")
+        y, m = start_y, start_m
+        prev_overflow = None
+        while (y, m) <= (end_y, end_m):
+            overflow_off = run_month(y, m, employees, branches, prev_overflow)
+            prev_overflow = {k: {**v, 'off_days': set(v['off_days'])} for k, v in overflow_off.items()}
+            m += 1
+            if m > 12: y += 1; m = 1
+        print("\n재구축 완료!")
+        return
 
-    # 2. 7월·8월 초기화 (순서대로 — overflow에 휴무일+사이클 상태 포함)
-    prev_overflow = None  # 첫 달은 초기값 사용
-    for y, m in [(2026,7),(2026,8)]:
-        print(f"\n━━ {y}년 {m}월 초기화 ━━")
-        all_data, overflow_off = build_month_schedule(employees, y, m, prev_overflow)
-        # overflow_off: { key: { off_days:[...], pair_idx:int, weeks_used:int } }
-        # off_days를 set으로 변환해서 다음달에 전달
-        prev_overflow = {k: {**v, 'off_days': set(v['off_days'])} for k, v in overflow_off.items()}
+    # 일반 모드: python3 bulk_init.py [y m]
+    if len(args) >= 2:
+        y, m = int(args[0]), int(args[1])
+        print(f"  지정 연월: {y}년 {m}월")
+    else:
+        y, m = now.year, now.month
+        print(f"  대상 연월: {y}년 {m}월 (KST 현재)")
 
-        # 지점별 분류
-        by_branch = {}
-        for safe_key, entry in all_data.items():
-            if not isinstance(entry, dict) or 'branch' not in entry: continue
-            by_branch.setdefault(entry['branch'],{})[safe_key] = entry
-
-        ok = err = skip = 0
-        for branch in branches:
-            if branch not in by_branch:
-                print(f"  {branch}: 직원 없음 (스킵)")
-                skip += 1
-                continue
-            url = fb_branch_url(y, m, branch)
-            data = by_branch[branch]
-            try:
-                status, _ = http_request(url, method='PUT', data=data)
-                mark = '✓' if status==200 else f'HTTP{status}'
-                print(f"  {branch}: {mark} ({len(data)}명)")
-                ok += 1
-            except Exception as e:
-                print(f"  {branch}: 오류 — {e}")
-                err += 1
-
-        print(f"  → 완료 {ok}개 / 오류 {err}개 / 스킵 {skip}개")
-
-    print("\n모든 작업 완료!")
+    run_month(y, m, employees, branches)
+    print("\n완료!")
 
 if __name__ == '__main__':
     main()
