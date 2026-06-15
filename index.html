@@ -425,14 +425,12 @@ function applyBranchAdminMode(branch) {
 }
 function _applyBranchAdmin(branch) {
   const sel = document.getElementById('branch-sel');
-  // 지점 관리자: 해당 지점만 선택 가능하게 고정, 드롭다운 비활성화
-  if (!sel.querySelector(`option[value="${branch}"]`)) {
-    sel.innerHTML = `<option value="${branch}">${branch}</option>`;
-  }
+  // 지점 관리자: 보기전용(전체) + 자기 지점만 선택 가능, 다른 지점 옵션 없음
+  sel.innerHTML = `<option value="">전체지점 (보기전용)</option><option value="${branch}">${branch}</option>`;
   sel.value = branch;
-  sel.disabled = true;
-  sel.style.pointerEvents = 'none';
-  sel.style.opacity = '0.7';
+  sel.disabled = false;
+  sel.style.pointerEvents = '';
+  sel.style.opacity = '';
   _doBranchChange();
 }
 
