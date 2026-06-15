@@ -1578,9 +1578,31 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   // ══ PHASE 1: 3주 고정쌍 + 1주 Flex 휴무 배정 ══
   // • 3주: 현재 쌍(월화/목금/토일) 그대로
   // • 4주(flex): 비연속 2일 개별 배정 (3일 연속 방지)
-  // • flex 이후 랜덤으로 다른 쌍 선택 → 매 사이클 동료가 달라짐
+  // • flex 이후 지점 내 균등 배분으로 다음 쌍 결정 (몰림 방지)
+  //   → 현재 쌍별로 짝수번째=(p+1)%3, 홀수번째=(p+2)%3 교대 배정 후 내부 셔플
   weeks.forEach(wDays => {
     const flexOff = {}; // 이번 주 flex 지점별 날짜 카운트 (균등화)
+
+    // ─── flex 주 사전 계산: 지점별로 다음 쌍을 균등 배분 ───
+    const flexNextPair = {};
+    const flexByBr = {};
+    empData.forEach(({ key, emp, startDay, isHireMonth }) => {
+      const state = empState[key];
+      const isHW = isHireMonth && startDay >= wDays[0] && startDay <= wDays[6];
+      if (!isHW && state.weeksUsed === 3) {
+        const br = mergedBranch(emp.branch);
+        (flexByBr[br] = flexByBr[br] || []).push({ key, p: state.pairIdx });
+      }
+    });
+    Object.values(flexByBr).forEach(arr => {
+      const byP = [[], [], []];
+      arr.forEach(({ key, p }) => byP[p].push(key));
+      byP.forEach((keys, p) => {
+        // 내부 셔플로 매 사이클 누가 어느 쌍 가는지 달라짐
+        const sh = keys.slice().sort(() => Math.random() - 0.5);
+        sh.forEach((key, i) => { flexNextPair[key] = (p + 1 + (i % 2)) % 3; });
+      });
+    });
 
     empData.forEach(({ key, emp, startDay, extEndDay, hireDow, isHireMonth, daysPerWeek }) => {
       const state = empState[key];
@@ -1608,8 +1630,8 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
 
       } else {
         // Flex 주 (3주 소진): 비연속 2일 개별 배정 후 다음 쌍으로 교체
-        const others = [0, 1, 2].filter(p => p !== state.pairIdx);
-        const nextPairIdx = others[Math.floor(Math.random() * others.length)];
+        // 다음 쌍은 사전 균등 배분값 사용 (지점 편차 방지)
+        const nextPairIdx = flexNextPair[key] ?? (state.pairIdx + 1) % 3;
 
         // 금지 요일: 수요일(3) + 3일 연속 경계 방지
         // prev=토일(2) → 이번 주 월(1): 토·일·월 3연속

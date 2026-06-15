@@ -256,9 +256,31 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
     # ══ PHASE 1: 3주 고정쌍 + 1주 Flex 휴무 배정 ══
     # 3주: 현재 쌍(월화/목금/토일) 고정
     # 4주(flex): 비연속 2일 개별 배정 (3일 연속 방지)
-    # flex 이후 랜덤으로 다른 쌍 선택 → 매 사이클 동료가 달라짐
+    # flex 이후 지점 내 균등 배분으로 다음 쌍 결정 (몰림 방지)
+    #   → 현재 쌍별로 짝수번째=(p+1)%3, 홀수번째=(p+2)%3 교대 배정 후 내부 셔플
     for w_days in weeks:
         flex_off = {}  # 이번 주 flex 지점별 날짜 카운트
+
+        # ─── flex 주 사전 계산: 지점별 다음 쌍 균등 배분 ───
+        flex_next_pair = {}
+        flex_by_br = {}
+        for ed in emp_data:
+            key = ed['key']
+            state = emp_state[key]
+            is_hw = (ed['is_hire_month']
+                     and ed['start_day'] >= w_days[0]
+                     and ed['start_day'] <= w_days[-1])
+            if not is_hw and state['weeks_used'] == 3:
+                br = ed['emp']['branch']
+                flex_by_br.setdefault(br, []).append({'key': key, 'p': state['pair_idx']})
+        for arr in flex_by_br.values():
+            by_p = {0: [], 1: [], 2: []}
+            for item in arr:
+                by_p[item['p']].append(item['key'])
+            for p, keys in by_p.items():
+                random.shuffle(keys)  # 내부 셔플로 누가 어느 쌍 가는지 매번 달라짐
+                for i, key in enumerate(keys):
+                    flex_next_pair[key] = (p + 1 + (i % 2)) % 3
 
         for ed in emp_data:
             key = ed['key']
@@ -289,8 +311,8 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
 
             else:
                 # Flex 주: 비연속 2일 개별 배정 후 다음 쌍으로 교체
-                others = [p for p in [0,1,2] if p != state['pair_idx']]
-                next_pair = random.choice(others)
+                # 다음 쌍은 사전 균등 배분값 사용 (지점 편차 방지)
+                next_pair = flex_next_pair.get(key, (state['pair_idx'] + 1) % 3)
 
                 # 금지 요일: 수요일(2) + 3일 연속 경계 방지
                 # prev=토일(2) → 이번 주 월(0): 토·일·월 3연속
