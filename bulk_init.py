@@ -344,26 +344,20 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
 
                 n_off = 3 if ed['days_per_week'] <= 4 else 2
 
-                # 연속 출근 5일 제한: must_by(마지막 휴무+5) 이전에 최소 1일 포함
-                # forced 선택: cands_before 중 score 최소이면서 가장 늦은 날 우선
-                # (이른 날 선택 시 특정 날에 쏠림 발생 방지)
+                # 연속 출근 5일 제한: 마지막 휴무 이후 5일 이내에 반드시 1일 포함
                 prev_offs = [d for d in off_map[key] if d < w_days[0]]
                 last_off = max(prev_offs) if prev_offs else 0
-                must_by = (last_off + 5) if last_off > 0 else 0
-                cands_before = [d for d in avail if must_by > 0 and d <= must_by]
-                if must_by > 0:
+                forced = None
+                if last_off > 0:
+                    must_by = last_off + 5
+                    cands_before = [d for d in avail if d <= must_by]
                     if cands_before:
-                        _min_sc = min(flex_off[br].get(d, 0) for d in cands_before)
-                        _best_c = [d for d in cands_before if flex_off[br].get(d, 0) == _min_sc]
-                        forced = _best_c[-1]  # score 같으면 가장 늦은 날
-                    else:
-                        forced = avail[0] if avail else None
-                else:
-                    forced = None
+                        forced = min(cands_before, key=lambda d: flex_off[br].get(d, 0))
+                    elif avail:
+                        forced = avail[0]
 
                 best, best_score = None, float('inf')
                 if forced is not None:
-                    # avail 전체가 must_by 이후 → 첫날 강제 포함
                     rest = [d for d in avail if d != forced and abs(d - forced) > 1]
                     if n_off == 2:
                         for d2 in rest:
@@ -381,14 +375,13 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                                          + flex_off[br].get(d3,0)) + adj * 100
                                 if score < best_score:
                                     best_score, best = score, (forced, d2, d3)
-                else:
-                    # 균등화 우선 + must_by 제약(조합 내 최소 1일이 must_by 이전)
+
+                if best is None:
                     if n_off == 2:
                         for i in range(len(avail)):
                             for j in range(i+1, len(avail)):
                                 d1, d2 = avail[i], avail[j]
                                 if abs(d1 - d2) == 1: continue
-                                if must_by > 0 and d1 > must_by and d2 > must_by: continue
                                 score = flex_off[br].get(d1, 0) + flex_off[br].get(d2, 0)
                                 if score < best_score:
                                     best_score, best = score, (d1, d2)
@@ -398,7 +391,6 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                                 for k in range(j+1, len(avail)):
                                     d1, d2, d3 = avail[i], avail[j], avail[k]
                                     adj = (1 if abs(d1-d2)==1 else 0) + (1 if abs(d2-d3)==1 else 0)
-                                    if must_by > 0 and d1>must_by and d2>must_by and d3>must_by: continue
                                     score = (flex_off[br].get(d1,0) + flex_off[br].get(d2,0)
                                              + flex_off[br].get(d3,0)) + adj * 100
                                     if score < best_score:
