@@ -328,23 +328,6 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                         best_d = min(extra_cands, key=lambda d: extra_off_by_br[br].get(d, 0))
                         off_map[key].add(best_d)
                         extra_off_by_br[br][best_d] = extra_off_by_br[br].get(best_d, 0) + 1
-                # 정규 주 연속 출근 5일 제한: 쌍 첫 날이 must_by 초과 시 추가 휴무
-                _prev_offs = [d for d in off_map[key] if d < w_days[0]]
-                if _prev_offs:
-                    _last_off = max(_prev_offs)
-                    _must_by = _last_off + 5
-                    _pair_offs = [d for d in off_map[key]
-                                  if w_days[0] <= d <= w_days[-1]
-                                  and (day_weekday(d) == wd1 or day_weekday(d) == wd2)]
-                    _earliest = min(_pair_offs) if _pair_offs else w_days[-1] + 1
-                    if _earliest > _must_by:
-                        _extra = [d for d in w_days
-                                  if ed['start_day'] <= d <= ed['ext_end_day']
-                                  and d <= _must_by
-                                  and day_weekday(d) != 2
-                                  and d not in off_map[key]]
-                        if _extra:
-                            off_map[key].add(_extra[-1])
                 state['weeks_used'] += 1
 
             else:
