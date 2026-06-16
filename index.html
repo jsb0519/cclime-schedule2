@@ -38,8 +38,6 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .month-lbl{font-size:16px;font-weight:700;min-width:100px;text-align:center}
 .btn-orig{padding:6px 13px;background:#fff;color:#059669;border:1px solid #059669;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
 .btn-orig:hover{background:#ECFDF5}
-.btn-init{padding:6px 13px;background:#fff;color:#DC2626;border:1px solid #DC2626;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
-.btn-init:hover{background:#FEF2F2}
 #orig-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:30px 16px}
 #orig-modal-overlay.open{display:flex}
 #orig-modal{background:#fff;border-radius:14px;width:100%;max-width:1100px;padding:24px 20px 20px;box-shadow:0 8px 32px rgba(0,0,0,.2);position:relative}
@@ -716,7 +714,7 @@ function loadEmployees() {
   document.head.appendChild(s);
 }
 
-function onEmployeeData(resp) {
+async function onEmployeeData(resp) {
   try {
     if (!resp || resp.status !== 'ok') throw new Error('응답 오류');
     const cols = resp.table.cols;
@@ -800,7 +798,7 @@ function onEmployeeData(resp) {
     if (Object.keys(schData).length > 0) {
       const newEmps = employees.filter(emp => !schData[emp.branch + '||' + emp.name]);
       if (newEmps.length > 0) {
-        const fresh = buildMonthSchedule(curY, curM, getPrevOverflowOff(curY, curM));
+        const fresh = buildMonthSchedule(curY, curM, await getPrevOverflowOff(curY, curM));
         newEmps.forEach(emp => {
           const key = emp.branch + '||' + emp.name;
           schData[key] = fresh[key] || mkEntry(emp);
@@ -971,7 +969,7 @@ function setFbStatus(ok, msg) {
 const _autoInitDone = new Set(); // 이미 확인/생성된 branch_Y_M 추적
 
 // 해당 월에 재직 중인 지점 직원 중 fb에 없는 신규 입사자를 계산해 반환
-function calcMissingEmps(y, m, branch, fb) {
+async function calcMissingEmps(y, m, branch, fb) {
   const branchEmps = employees.filter(e => e.branch === branch);
   const missing = branchEmps.filter(emp => {
     const key = emp.branch + '||' + emp.name;
@@ -989,7 +987,7 @@ function calcMissingEmps(y, m, branch, fb) {
     return true;
   });
   if (missing.length === 0) return null;
-  const fresh = buildMonthSchedule(y, m, getPrevOverflowOff(y, m));
+  const fresh = buildMonthSchedule(y, m, await getPrevOverflowOff(y, m));
   const result = {};
   missing.forEach(emp => {
     const key = emp.branch + '||' + emp.name;
@@ -1014,7 +1012,7 @@ async function autoInitMissingMonths(branch) {
       const fb = await fbGetBranch(y, m, branch);
       if (fb) {
         // 이미 데이터 있음 — 신규 입사자만 추가
-        const added = calcMissingEmps(y, m, branch, fb);
+        const added = await calcMissingEmps(y, m, branch, fb);
         if (added) {
           const updated = { ...fb, ...added };
           await fbSetBranch(y, m, branch, updated);
@@ -1035,7 +1033,7 @@ async function autoInitMissingMonths(branch) {
         }
       } else {
         // Firebase 비어있음 → 전체 자동 생성
-        const sched = buildMonthSchedule(y, m, getPrevOverflowOff(y, m));
+        const sched = buildMonthSchedule(y, m, await getPrevOverflowOff(y, m));
         saveLs(y, m, sched);
         await fbSetBranch(y, m, branch, sched);
         _autoInitDone.add(key);
@@ -1072,7 +1070,7 @@ async function autoInitAllBranches() {
         const fb = await fbGetBranch(y, m, branch);
         if (fb) {
           // 신규 입사자만 추가
-          const added = calcMissingEmps(y, m, branch, fb);
+          const added = await calcMissingEmps(y, m, branch, fb);
           if (added) {
             await fbSetBranch(y, m, branch, { ...fb, ...added });
             generated++;
@@ -1080,7 +1078,7 @@ async function autoInitAllBranches() {
             _autoInitDone.add(key);
           }
         } else {
-          const sched = buildMonthSchedule(y, m, getPrevOverflowOff(y, m));
+          const sched = buildMonthSchedule(y, m, await getPrevOverflowOff(y, m));
           await fbSetBranch(y, m, branch, sched);
           _autoInitDone.add(key);
           generated++;
@@ -1098,7 +1096,7 @@ async function autoInitAllBranches() {
   }
 }
 
-/* ── 5초 폴링 (읽기 전용 — 쓰기는 doSave/initMonth만) ── */
+/* ── 5초 폴링 (읽기 전용 — 쓰기는 doSave만) ── */
 let fbListenerAttached = false;
 let fbPollBusy = false;
 let fbPollTimer = null;
@@ -1975,17 +1973,40 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   return result;
 }
 
-// 이전 달 overflow 데이터(휴무일 + 사이클 상태)를 로컬스토리지에서 읽어 반환
-function getPrevOverflowOff(y, m) {
+// Firebase /overflow/ 경로에서 직접 읽기 (bulk_init.py가 쓰는 것과 동일 경로/형식)
+async function fbGetOverflow(y, m) {
+  try {
+    const r = await fetchTimed(fbOverflowUrl(y, m));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const raw = await r.json();
+    if (!raw || typeof raw !== 'object') return null;
+    const result = {};
+    for (const [safeKey, v] of Object.entries(raw)) {
+      if (!v || typeof v !== 'object') continue;
+      result[v._key || safeKey] = {
+        off_days: v.off_days || [],
+        last_off_day: v.last_off_day ?? 0,
+        pair_idx: v.pair_idx ?? null,
+        weeks_used: v.weeks_used ?? null
+      };
+    }
+    return Object.keys(result).length ? result : null;
+  } catch(e) { return null; }
+}
+
+// 이전 달 overflow 데이터(휴무일 + 사이클 상태)를 읽어 반환
+// 로컬스토리지(JS 자체 생성분)에 없으면 Firebase /overflow/ 를 조회 (bulk_init.py 생성분 대응)
+async function getPrevOverflowOff(y, m) {
   const fDow = new Date(y, m-1, 1).getDay();
   const fMon = fDow === 0 ? 2 : (fDow === 1 ? 1 : (2 + 7 - fDow));
   const hasPrefix = fMon > 1;
   const py = m === 1 ? y - 1 : y;
   const pm = m === 1 ? 12 : m - 1;
   const prev = loadLs(py, pm);
-  if (!prev || !prev.__overflow) return null;
+  const prevOverflow = (prev && prev.__overflow) ? prev.__overflow : await fbGetOverflow(py, pm);
+  if (!prevOverflow) return null;
   const r = {};
-  Object.entries(prev.__overflow).forEach(([k, v]) => {
+  Object.entries(prevOverflow).forEach(([k, v]) => {
     if (Array.isArray(v)) {
       // 구형식(배열): off_days만, 상태 없음
       r[k] = { off_days: hasPrefix ? new Set(v) : new Set(), pair_idx: null, weeks_used: null };
@@ -2002,12 +2023,12 @@ function getPrevOverflowOff(y, m) {
 }
 
 /* ── 근무표 원본 확인 모달 ── */
-function openOrigModal() {
+async function openOrigModal() {
   const branch = document.getElementById('branch-sel').value;
   if (!branch) { alert('지점을 선택한 후 눌러 주세요.'); return; }
   if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
 
-  const orig = buildMonthSchedule(curY, curM, getPrevOverflowOff(curY, curM));
+  const orig = buildMonthSchedule(curY, curM, await getPrevOverflowOff(curY, curM));
   const days = new Date(curY, curM, 0).getDate();
   const DOW = ['일','월','화','수','목','금','토'];
   const monthHolidays = getHolidays(curY); // "MM-DD" 키 형식
@@ -2079,32 +2100,6 @@ function openOrigModal() {
 }
 function closeOrigModal() {
   document.getElementById('orig-modal-overlay').classList.remove('open');
-}
-
-function initMonth() {
-  const branch = document.getElementById('branch-sel').value;
-  if (!branch) { alert('지점을 선택한 후 초기화해 주세요.'); return; }
-  if (isBranchLocked()) { alert('지나간 달의 근무표는 마스터 계정만 수정할 수 있습니다.'); return; }
-  if (!confirm(`[주의!] [${branch}] ${curY}년 ${curM}월 근무표를 초기화합니다.\n기존 수동 수정 내역이 모두 삭제되고 자동 생성 스케줄로 덮어씌워집니다.`)) return;
-  if (employees.length === 0) { alert('직원 데이터가 없습니다. 새로고침 후 시도해주세요.'); return; }
-
-  // 당월만 초기화
-  schData = buildMonthSchedule(curY, curM, getPrevOverflowOff(curY, curM));
-  saveLs(curY, curM, schData);
-  clearTimeout(_saveTimer); dirty = false; _saving = false; _pendingSave = false;
-  buildTable();
-  setStat(`${curY}년 ${curM}월 초기화 완료 · Firebase 동기화 중...`);
-  setFbStatus(null, '📤 동기화 중...');
-  fbSetBranch(curY, curM, branch, schData)
-    .then(() => {
-      setFbStatus(true, '🟢 Firebase 동기화됨');
-      setStat(`[${branch}] ${curY}년 ${curM}월 초기화 완료`);
-    })
-    .catch(e => {
-      setFbStatus(false, '🔴 동기화 실패: ' + e.message);
-      setStat(`초기화 완료 · Firebase 동기화 실패`);
-    });
-
 }
 
 /* ── 저장 큐 (race condition 방지) ── */
@@ -2196,8 +2191,6 @@ function buildTable() {
   const isReadOnly = !branch || _viewerMode || isBranchLocked();
   const origBtn = document.getElementById('btn-orig');
   if (origBtn) origBtn.style.display = (!branch || _viewerMode) ? 'none' : '';
-  const initBtn = document.getElementById('btn-init');
-  if (initBtn) initBtn.style.display = isReadOnly ? 'none' : '';
   const fbStatus = document.getElementById('fb-status');
   const editHint = document.getElementById('edit-hint');
   if (fbStatus) fbStatus.style.display = isReadOnly ? 'none' : '';

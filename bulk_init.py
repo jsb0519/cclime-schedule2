@@ -5,7 +5,7 @@
   - 초기화: 2026년 7월, 8월 (전지점)
   - 7월6일(월) 주부터 시작 (이전 주는 생략)
 """
-import json, re, math, random, calendar, sys
+import json, re, math, calendar, sys
 import urllib.request, urllib.parse
 from datetime import date
 
@@ -28,6 +28,25 @@ def merged_branch(b): return BRANCH_MERGE.get(b, b)
 # ── 헬퍼 ─────────────────────────────────────────────────────────────
 def fb_safe(s):
     return re.sub(r'[\.#\$\[\]/]', '_', s)
+
+# JS buildMonthSchedule()의 seeded PRNG(mulberry32)를 그대로 포팅.
+# 브라우저 "근무표 원본 확인" 재계산 결과와 비트 단위로 동일해야 함.
+def mulberry32(seed):
+    state = seed & 0xFFFFFFFF
+    def rng():
+        nonlocal state
+        state = (state + 0x6D2B79F5) & 0xFFFFFFFF
+        t = state
+        t = ((t ^ (t >> 15)) * (1 | t)) & 0xFFFFFFFF
+        t = ((t + (((t ^ (t >> 7)) * (61 | t)) & 0xFFFFFFFF)) & 0xFFFFFFFF) ^ t
+        t &= 0xFFFFFFFF
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296
+    return rng
+
+def seeded_shuffle(arr, rng):
+    for i in range(len(arr) - 1, 0, -1):
+        j = math.floor(rng() * (i + 1))
+        arr[i], arr[j] = arr[j], arr[i]
 
 def fb_branch_url(y, m, branch):
     key = urllib.parse.quote(fb_safe(branch), safe='')
@@ -159,7 +178,7 @@ def fetch_employees():
 
 # ── 스케줄 생성 (JS buildMonthSchedule 재현) ─────────────────────────
 def build_month_schedule(employees, y, m, prev_overflow_off=None):
-    random.seed(y * 100 + m)  # 동일 연월은 항상 동일 결과 보장
+    rng = mulberry32(y * 100 + m)  # 동일 연월은 항상 동일 결과 보장 (JS와 동일 PRNG)
     days_in_month = calendar.monthrange(y, m)[1]
 
     # 월 경계 주 처리: 첫 월요일 / 마지막 주 일요일까지 연장
@@ -325,7 +344,7 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
             for item in arr:
                 by_p[item['p']].append(item['key'])
             for p, keys in by_p.items():
-                random.shuffle(keys)  # 내부 셔플로 누가 어느 쌍 가는지 매번 달라짐
+                seeded_shuffle(keys, rng)  # 내부 셔플 — JS seededShuffle과 동일 결과 보장
                 for i, key in enumerate(keys):
                     flex_next_pair[key] = (p + 1 + (i % 2)) % 3
 
