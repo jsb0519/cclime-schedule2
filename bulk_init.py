@@ -267,7 +267,9 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
 
     off_map = {ed['key']:set() for ed in emp_data}
     # 이전 달 마지막 주 overflow 휴무 선반영
-    if prev_overflow_off and prefix_days > 0:
+    # last_off_day 음수 변환은 prefix_days=0(달이 월요일로 시작)이어도 항상 반영해야 함 —
+    # 그렇지 않으면 전월 마지막 휴무 이후 연속 출근일수를 알 수 없어 5일 제한이 깨짐 (JS와 동일)
+    if prev_overflow_off:
         prev_m = m - 1 if m > 1 else 12
         prev_y = y if m > 1 else y - 1
         days_in_prev = calendar.monthrange(prev_y, prev_m)[1]
@@ -410,16 +412,17 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
                 n_off = 3 if ed['days_per_week'] <= 4 else 2
 
                 # 연속 출근 5일 제한: 마지막 휴무 이후 5일 이내에 반드시 1일 포함
+                # (월 경계에서 직전 주가 prefix 보정으로 인해 마지막 휴무가 아직 없는 경우도
+                #  last_off=0으로 취급해 동일하게 강제 — JS와 동일 로직)
                 prev_offs = [d for d in off_map[key] if d < w_days[0]]
                 last_off = max(prev_offs) if prev_offs else 0
                 forced = None
-                if last_off > 0:
-                    must_by = last_off + 5
-                    cands_before = [d for d in avail if d <= must_by]
-                    if cands_before:
-                        forced = min(cands_before, key=lambda d: flex_off[br].get(d, 0))
-                    elif avail:
-                        forced = avail[0]
+                must_by = last_off + 5
+                cands_before = [d for d in avail if d <= must_by]
+                if cands_before:
+                    forced = min(cands_before, key=lambda d: flex_off[br].get(d, 0))
+                elif avail:
+                    forced = avail[0]
 
                 # 다음 정규 쌍 첫 휴무까지 연속 제한: flex 마지막 날이 충분히 늦어야 함
                 next_pair_first_off = w_days[-1] + 1 + PAIR_FIRST_OFF_OFFSETS[next_pair]
