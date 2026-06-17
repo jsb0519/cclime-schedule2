@@ -675,6 +675,33 @@ let _checkedBranches = null; // null = not yet initialized (show all)
   toRemove.forEach(k => localStorage.removeItem(k));
 })();
 
+// 10시간 근무형태 직원 9:30 출근 마이그레이션 — 2026-07/08, 수원점·센텀점 제외
+(function migrateShiftHours() {
+  const EXCLUDE = ['수원점', '센텀점'];
+  [{y:2026,m:7},{y:2026,m:8}].forEach(({y,m}) => {
+    const data = loadLs(y, m);
+    if (!data || Object.keys(data).length === 0) return;
+    let changed = false;
+    Object.entries(data).forEach(([k, sd]) => {
+      if (k.startsWith('__') || typeof sd !== 'object' || !sd) return;
+      const wt = parseWorkType(sd.work_type || '');
+      if (wt.hours !== 10) return;
+      const br = sd.branch || k.split('||')[0] || '';
+      if (EXCLUDE.some(b => br.includes(b))) return;
+      if (sd.shift_hours === 11.5 && sd.shift_slots && sd.shift_slots[0] === '09:30') return;
+      sd.shift_hours = 11.5;
+      sd.shift_slots = ['09:30'];
+      if (sd.shift_starts) {
+        Object.keys(sd.shift_starts).forEach(d => {
+          if (sd.shift_starts[d] === '10:00') sd.shift_starts[d] = '09:30';
+        });
+      }
+      changed = true;
+    });
+    if (changed) saveLs(y, m, data);
+  });
+})();
+
 let curY = new Date().getFullYear();
 let curM = new Date().getMonth() + 1;
 // 현재 월이 최소 월보다 이전이면 최소 월로 시작
@@ -821,7 +848,7 @@ async function onEmployeeData(resp) {
         if (!sd) return;
 
         const newWt = parseWorkType(emp.work_type || '');
-        const newStoreHours = newWt.hours + 1;
+        const newStoreHours = newWt.hours === 10 ? 11.5 : newWt.hours + 1;
         const newSlots = getSlots(newStoreHours);
         const hoursChanged    = sd.shift_hours !== newStoreHours;
         const beltChanged     = sd.belt !== (emp.belt || '화이트');
@@ -1611,7 +1638,7 @@ function buildMonthSchedule(y, m, prevOverflowOff = null) {
   const empData = [];
   employees.forEach(emp => {
     const wt = parseWorkType(emp.work_type || '');
-    const storeHours = wt.hours + 1;
+    const storeHours = wt.hours === 10 ? 11.5 : wt.hours + 1;
     const daysPerWeek = wt.days;
 
     let startDay = 1;
@@ -2176,6 +2203,7 @@ function parseWorkType(str) {
 
 // 출근 가능 시간 목록 — 최대 출근시간은 (21 - storeHours)시, 퇴근 ≤ 21:00 보장
 function getSlots(storeHours) {
+  if (storeHours === 11.5) return ['09:30']; // 10시간 근무형태: 9:30~21:00 (11h30m 상주)
   const r = [];
   for (let h = 10; h <= 21 - storeHours; h++) r.push(`${String(h).padStart(2,'0')}:00`);
   return r.length ? r : ['10:00'];
@@ -2184,7 +2212,7 @@ function getSlots(storeHours) {
 function mkEntry(emp) {
   const wt = parseWorkType(emp.work_type||'');
   const belt = emp.belt || '화이트';
-  const storeHours = wt.hours + 1; // +1 휴게 포함 매장 상주 시간
+  const storeHours = wt.hours === 10 ? 11.5 : wt.hours + 1; // 10시간 근무 → 11.5h(9:30~21:00), 그 외 +1 휴게 포함
   const slots = getSlots(storeHours);
   return { name:emp.name, branch:emp.branch, belt, hire_date:emp.hire_date||'',
            exit_date:emp.exit_date||'', work_type:emp.work_type||'',
@@ -2340,7 +2368,7 @@ function buildTable() {
         <span class="belt-badge" style="background:${bS.bg};color:${bS.fg}">${belt}</span>
         ${isReadOnly ? `<span class="emp-name-btn" style="cursor:default">${empTag}</span>` : `<button class="emp-name-btn" onclick="openModal('${key}')">${empTag}</button>`}
       </div></td>
-      <td class="td-shift">${slotsText}<br><span style="color:#aaa;font-size:9px">${(() => { const wt2=parseWorkType(sd.work_type||emp.work_type||''); return '주'+wt2.days+'/'+(hours===11?'11h30m':hours+'h'); })()}</span></td>
+      <td class="td-shift">${slotsText}<br><span style="color:#aaa;font-size:9px">${(() => { const wt2=parseWorkType(sd.work_type||emp.work_type||''); return '주'+wt2.days+'/'+(hours===11.5?'11h30m':hours+'h'); })()}</span></td>
       ${cells}
       <td class="cnt-work">${workCnt}</td>
       <td class="cnt-off">${offCnt}</td>
@@ -2377,7 +2405,8 @@ function selectDayType(type) {
     const rot = Math.floor((dmDay - 1) / ROT_INT);
     const curStart = (sd.shift_starts && sd.shift_starts[String(dmDay)]) || slots[(basePos + rot) % slots.length];
     const sel = document.getElementById('dm-start');
-    sel.innerHTML = slots.map(s => `<option value="${s}"${s===curStart?' selected':''}>${s}</option>`).join('');
+    const dmOpts = (sd.shift_hours === 11.5 && !slots.includes('10:00')) ? [...slots, '10:00'] : slots;
+    sel.innerHTML = dmOpts.map(s => `<option value="${s}"${s===curStart?' selected':''}>${s}</option>`).join('');
     updateDmPreview();
   } else {
     timeRow.style.display = 'none';
@@ -2389,7 +2418,7 @@ function updateDmPreview() {
   const hours = sd.shift_hours || 9;
   const start = document.getElementById('dm-start').value;
   document.getElementById('dm-preview').textContent =
-    `퇴근: ${start} + ${hours}h 상주 → ${addHours(start, hours)}`;
+    `퇴근: ${start} + ${hours===11.5?'11h30m':hours+'h'} 상주 → ${addHours(start, hours)}`;
 }
 function saveDayModal() {
   if (!dmKey) return;
