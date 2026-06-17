@@ -873,6 +873,19 @@ async function onEmployeeData(resp) {
           if (beltChanged)     sd.belt      = emp.belt || '화이트';
           if (exitDateChanged) sd.exit_date = emp.exit_date || '';
           if (hoursChanged || wtTextChanged) {
+            // 기존 로테이션 출근시간을 shift_starts에 고정한 뒤 slots 교체
+            // → 날짜별 스케줄(출근시간)은 그대로, 근무시간 칸 표시만 변경됨
+            if (!sd.shift_starts) sd.shift_starts = {};
+            const _oldSlots = (sd.shift_slots && sd.shift_slots.length) ? sd.shift_slots : getSlots(sd.shift_hours || 9);
+            const _oldBase  = sd.shift_base_offset !== undefined ? sd.shift_base_offset : 0;
+            const _oldRot   = sd.rotation_interval || 2;
+            const _daysInM  = new Date(_wy, _wm, 0).getDate();
+            for (let _dd = 1; _dd <= _daysInM; _dd++) {
+              if ((sd.off_days || []).includes(_dd)) continue;
+              if (sd.day_types && sd.day_types[String(_dd)] && sd.day_types[String(_dd)] !== '근무') continue;
+              if (sd.shift_starts[String(_dd)]) continue; // 이미 수동 고정된 날 제외
+              sd.shift_starts[String(_dd)] = _oldSlots[(_oldBase + Math.floor((_dd - 1) / _oldRot)) % _oldSlots.length];
+            }
             sd.shift_hours = newStoreHours;
             sd.shift_slots = newSlots;
             sd.work_type   = emp.work_type || '';
