@@ -38,6 +38,8 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .month-lbl{font-size:16px;font-weight:700;min-width:100px;text-align:center}
 .btn-orig{padding:6px 13px;background:#fff;color:#059669;border:1px solid #059669;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
 .btn-orig:hover{background:#ECFDF5}
+.btn-rebuild{padding:6px 13px;background:#fff;color:#dc2626;border:1px solid #dc2626;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-rebuild:hover{background:#FEF2F2}
 #orig-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:30px 16px}
 #orig-modal-overlay.open{display:flex}
 #orig-modal{background:#fff;border-radius:14px;width:100%;max-width:1100px;padding:24px 20px 20px;box-shadow:0 8px 32px rgba(0,0,0,.2);position:relative}
@@ -229,6 +231,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <span class="month-lbl" id="month-lbl">—</span>
     <button class="nav-btn" id="btn-next" onclick="nextMonth()">▶</button>
     <button class="btn-orig" id="btn-orig" onclick="openOrigModal()">📄 근무표 원본 확인</button>
+    <button class="btn-rebuild" id="btn-rebuild" onclick="forceRebuildSchedule()" style="display:none">🔄 7·8월 재생성</button>
     <button class="btn-excel" onclick="openExcelModal()">⬇ 엑셀 다운로드</button>
     <span id="fb-status" style="font-size:11px;padding:4px 10px;border-radius:12px;background:#eee;color:#888;white-space:nowrap">Firebase 연결 중...</span>
 <span id="edit-hint" style="font-size:11px;color:#aaa;flex:1">※ 이름 클릭 → 출근 시간 고정 &nbsp;|&nbsp; 날짜 클릭 → 근무 상태 선택 팝업</span>
@@ -1136,6 +1139,41 @@ async function autoInitAllBranches() {
     saveLs(curY, curM, schData);
     buildTable();
     setStat(`전체 지점 근무표 자동 초기화 완료 (${generated}건) · ${new Date().toLocaleTimeString('ko-KR')}`);
+  }
+}
+
+/* ── 7·8월 근무표 강제 재생성 (마스터 전용) ── */
+async function forceRebuildSchedule() {
+  if (!isMaster()) return;
+  if (!confirm('7월과 8월 근무표를 처음부터 재생성합니다.\n수원점·센텀점은 현재 데이터가 유지됩니다.\n\n⚠ 수동으로 수정된 스케줄도 모두 초기화됩니다.\n계속하시겠습니까?')) return;
+
+  setStat('근무표 재생성 중...');
+  const SKIP = ['수원점', '센텀점'];
+  const allBranches = [...new Set(employees.map(e => e.branch))];
+  const toBuild = allBranches.filter(br => !SKIP.some(s => br.includes(s)));
+  const months = [{y: 2026, m: 7}, {y: 2026, m: 8}];
+
+  try {
+    for (const {y, m} of months) {
+      const prevOv = await getPrevOverflowOff(y, m);
+      const sched = buildMonthSchedule(y, m, prevOv);
+      saveLs(y, m, sched);
+      let cnt = 0;
+      for (const branch of toBuild) {
+        await fbSetBranch(y, m, branch, sched).catch(e => console.warn('재생성 오류:', branch, e));
+        _autoInitDone.delete(`${branch}_${y}_${m}`);
+        cnt++;
+        setStat(`근무표 재생성 중... (${y}년 ${m}월 ${cnt}/${toBuild.length})`);
+      }
+    }
+    if (curY === 2026 && (curM === 7 || curM === 8)) {
+      const branch = document.getElementById('branch-sel').value;
+      const fresh = branch ? await fbGetBranch(curY, curM, branch) : await fbGetAll(curY, curM);
+      if (fresh) { schData = { ...schData, ...fresh }; saveLs(curY, curM, schData); buildTable(); }
+    }
+    setStat('7·8월 근무표 재생성 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
+  } catch(e) {
+    setStat('재생성 오류: ' + (e.message || e));
   }
 }
 
@@ -2258,6 +2296,8 @@ function buildTable() {
   const isReadOnly = (!branch && !isMaster()) || _viewerMode || isBranchLocked();
   const origBtn = document.getElementById('btn-orig');
   if (origBtn) origBtn.style.display = (!branch || _viewerMode) ? 'none' : '';
+  const rebuildBtn = document.getElementById('btn-rebuild');
+  if (rebuildBtn) rebuildBtn.style.display = isMaster() ? '' : 'none';
   const fbStatus = document.getElementById('fb-status');
   const editHint = document.getElementById('edit-hint');
   if (fbStatus) fbStatus.style.display = isReadOnly ? 'none' : '';
