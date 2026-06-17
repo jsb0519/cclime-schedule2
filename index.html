@@ -837,44 +837,56 @@ async function onEmployeeData(resp) {
         if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
       }
 
-      // work_type / belt / exit_date 변경 감지 → Firebase 동기화
+      // work_type / belt / exit_date 변경 감지 → 모든 초기화된 달에 반영 + Firebase 동기화
       // 정책: 기존 근무표(off_days, shift_starts)는 불변 — 입사·퇴사 반영만 예외
       //   - hours 변경: shift_hours/shift_slots/work_type 표시만 업데이트, shift_starts 그대로
       //   - days 변경(주4↔주5): work_type 텍스트만 업데이트, 휴무/출근시간 그대로
       //   - belt 변경: belt 필드만 업데이트
       //   - exit_date 변경: exit_date 필드만 업데이트
       let wtChanged = false;
-      employees.forEach(emp => {
-        const key = emp.branch + '||' + emp.name;
-        const sd = schData[key];
-        if (!sd) return;
-
-        const newWt = parseWorkType(emp.work_type || '');
-        const newStoreHours = newWt.hours === 10 ? 11.5 : newWt.hours + 1;
-        const newSlots = getSlots(newStoreHours);
-        const hoursChanged    = sd.shift_hours !== newStoreHours;
-        const beltChanged     = sd.belt !== (emp.belt || '화이트');
-        const exitDateChanged = (emp.exit_date || '') !== (sd.exit_date || '');
-        const wtTextChanged   = (emp.work_type || '') !== (sd.work_type || '');
-
-        if (!hoursChanged && !beltChanged && !exitDateChanged && !wtTextChanged) return;
-
-        if (beltChanged)     sd.belt       = emp.belt || '화이트';
-        if (exitDateChanged) sd.exit_date  = emp.exit_date || '';
-        if (hoursChanged || wtTextChanged) {
-          // 근무시간·근무형태 표시 업데이트 (shift_starts는 그대로 유지)
-          sd.shift_hours = newStoreHours;
-          sd.shift_slots = newSlots;
-          sd.work_type   = emp.work_type || '';
+      // 현재 달 + 앞뒤 달 포함 모든 유효 달에 변경 적용
+      const _wt_months = [];
+      { const _now = new Date();
+        for (let _off = -1; _off <= 3; _off++) {
+          const _d = new Date(_now.getFullYear(), _now.getMonth() + _off, 1);
+          const _ry = _d.getFullYear(), _rm = _d.getMonth() + 1;
+          if (_ry > MIN_YEAR || (_ry === MIN_YEAR && _rm >= MIN_MONTH)) _wt_months.push({y:_ry, m:_rm});
         }
-
-        wtChanged = true;
-      });
-
-      if (wtChanged) {
-        saveLs(curY, curM, schData);
-        const branch = document.getElementById('branch-sel').value;
-        if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
+      }
+      for (const {y: _wy, m: _wm} of _wt_months) {
+        const _isCur = _wy === curY && _wm === curM;
+        const _mData = _isCur ? schData : loadLs(_wy, _wm);
+        if (!_mData || Object.keys(_mData).filter(k => !k.startsWith('__')).length === 0) continue;
+        const _changedBrs = new Set();
+        employees.forEach(emp => {
+          const key = emp.branch + '||' + emp.name;
+          const sd = _mData[key];
+          if (!sd) return;
+          const newWt = parseWorkType(emp.work_type || '');
+          const newStoreHours = newWt.hours === 10 ? 11.5 : newWt.hours + 1;
+          const newSlots = getSlots(newStoreHours);
+          const hoursChanged    = sd.shift_hours !== newStoreHours;
+          const beltChanged     = sd.belt !== (emp.belt || '화이트');
+          const exitDateChanged = (emp.exit_date || '') !== (sd.exit_date || '');
+          const wtTextChanged   = (emp.work_type || '') !== (sd.work_type || '');
+          if (!hoursChanged && !beltChanged && !exitDateChanged && !wtTextChanged) return;
+          if (beltChanged)     sd.belt      = emp.belt || '화이트';
+          if (exitDateChanged) sd.exit_date = emp.exit_date || '';
+          if (hoursChanged || wtTextChanged) {
+            sd.shift_hours = newStoreHours;
+            sd.shift_slots = newSlots;
+            sd.work_type   = emp.work_type || '';
+          }
+          _changedBrs.add(emp.branch);
+          wtChanged = true;
+        });
+        if (_changedBrs.size > 0) {
+          saveLs(_wy, _wm, _mData);
+          // 드롭다운 선택과 무관하게 변경된 지점을 직접 Firebase에 저장
+          if (fbListenerAttached) {
+            _changedBrs.forEach(br => fbSetBranch(_wy, _wm, br, _mData).catch(() => {}));
+          }
+        }
       }
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
