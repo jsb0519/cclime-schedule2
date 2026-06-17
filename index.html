@@ -746,6 +746,37 @@ function loadEmployees() {
   document.head.appendChild(s);
 }
 
+/* belt·work_type·exit_date 변경을 schData에 반영하고 Firebase에 저장
+   — onEmployeeData와 Firebase 폴링 양쪽에서 호출해 타이밍 문제 해소 */
+function syncEmpMeta() {
+  if (!employees.length || !schData || !Object.keys(schData).filter(k => !k.startsWith('__')).length) return;
+  const changed = new Set();
+  employees.forEach(emp => {
+    const key = emp.branch + '||' + emp.name;
+    const sd = schData[key];
+    if (!sd) return;
+    const newWt = parseWorkType(emp.work_type || '');
+    const newStoreHours = newWt.hours === 10 ? 11.5 : newWt.hours + 1;
+    const newSlots = getSlots(newStoreHours);
+    const hoursChanged    = sd.shift_hours !== newStoreHours;
+    const beltChanged     = sd.belt !== (emp.belt || '화이트');
+    const exitDateChanged = (emp.exit_date || '') !== (sd.exit_date || '');
+    const wtTextChanged   = (emp.work_type || '') !== (sd.work_type || '');
+    if (!hoursChanged && !beltChanged && !exitDateChanged && !wtTextChanged) return;
+    if (beltChanged)     sd.belt      = emp.belt || '화이트';
+    if (exitDateChanged) sd.exit_date = emp.exit_date || '';
+    if (hoursChanged || wtTextChanged) {
+      sd.shift_hours = newStoreHours;
+      sd.shift_slots = newSlots;
+      sd.work_type   = emp.work_type || '';
+    }
+    changed.add(emp.branch);
+  });
+  if (!changed.size) return;
+  saveLs(curY, curM, schData);
+  changed.forEach(br => fbSetBranch(curY, curM, br, schData).catch(() => {}));
+}
+
 async function onEmployeeData(resp) {
   try {
     if (!resp || resp.status !== 'ok') throw new Error('응답 오류');
@@ -840,50 +871,7 @@ async function onEmployeeData(resp) {
         if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
       }
 
-      // work_type / belt / exit_date 변경 감지 → Firebase 동기화
-      // 정책: 기존 근무표(off_days, shift_starts)는 불변 — 입사·퇴사 반영만 예외
-      //   - hours 변경: shift_hours/shift_slots/work_type 표시만 업데이트, shift_starts 그대로
-      //   - days 변경(주4↔주5): work_type 텍스트만 업데이트, 휴무/출근시간 그대로
-      //   - belt 변경: belt 필드만 업데이트
-      //   - exit_date 변경: exit_date 필드만 업데이트
-      let wtChanged = false;
-      const _wtChangedBrs = new Set();
-      employees.forEach(emp => {
-        const key = emp.branch + '||' + emp.name;
-        const sd = schData[key];
-        if (!sd) return;
-
-        const newWt = parseWorkType(emp.work_type || '');
-        const newStoreHours = newWt.hours === 10 ? 11.5 : newWt.hours + 1;
-        const newSlots = getSlots(newStoreHours);
-        const hoursChanged    = sd.shift_hours !== newStoreHours;
-        const beltChanged     = sd.belt !== (emp.belt || '화이트');
-        const exitDateChanged = (emp.exit_date || '') !== (sd.exit_date || '');
-        const wtTextChanged   = (emp.work_type || '') !== (sd.work_type || '');
-
-        if (!hoursChanged && !beltChanged && !exitDateChanged && !wtTextChanged) return;
-
-        if (beltChanged)     sd.belt       = emp.belt || '화이트';
-        if (exitDateChanged) sd.exit_date  = emp.exit_date || '';
-        if (hoursChanged || wtTextChanged) {
-          // 근무시간·근무형태 표시 업데이트 (shift_starts는 그대로 유지)
-          sd.shift_hours = newStoreHours;
-          sd.shift_slots = newSlots;
-          sd.work_type   = emp.work_type || '';
-        }
-
-        wtChanged = true;
-        _wtChangedBrs.add(emp.branch);
-      });
-
-      if (wtChanged) {
-        saveLs(curY, curM, schData);
-        if (fbListenerAttached) {
-          const branch = document.getElementById('branch-sel').value;
-          const toSave = branch ? [branch] : [..._wtChangedBrs];
-          toSave.forEach(br => fbSetBranch(curY, curM, br, schData).catch(() => {}));
-        }
-      }
+      syncEmpMeta();
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
     // 당월+2개월 자동 생성: 지점 선택 시 해당 지점만, 전체지점 뷰에서는 모든 지점 백그라운드 생성
@@ -1214,6 +1202,7 @@ function attachFb(y, m) {
           if (!dirty && !_saving) {
             schData = merged;
             saveLs(y, m, schData);
+            syncEmpMeta();
             if (document.getElementById('view-schedule').classList.contains('active')) {
               buildTable();
               setStat('변경 내용 반영됨 · ' + new Date().toLocaleTimeString('ko-KR'));
