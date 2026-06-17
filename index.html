@@ -303,9 +303,12 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <div class="dm-time-box" id="dm-time-row" style="display:none">
       <div class="f-row" style="margin-bottom:8px">
         <label>출근 시간</label>
-        <select id="dm-start" onchange="updateDmPreview()" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;min-width:100px"></select>
+        <select id="dm-start" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;min-width:100px"></select>
       </div>
-      <div style="font-size:12px;color:#555;padding-left:92px" id="dm-preview"></div>
+      <div class="f-row">
+        <label>퇴근 시간</label>
+        <select id="dm-end" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;min-width:100px"></select>
+      </div>
     </div>
     <div class="modal-btns">
       <button class="btn-cancel" onclick="closeDayModal()">취소</button>
@@ -2267,6 +2270,17 @@ function addHours(t, h) {
   const tot = hh*60 + mm + h*60;
   return String(~~(tot/60)).padStart(2,'0') + ':' + String(tot%60).padStart(2,'0');
 }
+function buildHalfHourOpts(selected) {
+  let html = '';
+  for (let h = 0; h <= 24; h++) {
+    for (const m of [0, 30]) {
+      if (h === 24 && m === 30) break;
+      const t = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      html += `<option value="${t}"${t === selected ? ' selected' : ''}>${t}</option>`;
+    }
+  }
+  return html;
+}
 function parseWorkType(str) {
   const dm = (str||'').match(/주\s*(\d)\s*일/);
   const hm = (str||'').match(/(\d+)\s*시간/);
@@ -2431,7 +2445,7 @@ function buildTable() {
           const rot = Math.floor((d - 1) / ROT_INT);
           const ds  = (sd.shift_starts && sd.shift_starts[String(d)])
                    || slots[(basePos + rot) % slots.length];
-          const de  = addHours(ds, hours);
+          const de  = (sd.shift_ends && sd.shift_ends[String(d)]) || addHours(ds, hours);
           cells += `<td class="${holCls}"${isReadOnly ? '' : ` onclick="openDayModal('${key}',${d})"`}><span class="d-work">${ds}<br>${de}</span></td>`;
         }
       }
@@ -2478,24 +2492,12 @@ function selectDayType(type) {
     const basePos = sd.shift_base_offset !== undefined ? sd.shift_base_offset : 0;
     const rot = Math.floor((dmDay - 1) / ROT_INT);
     const curStart = (sd.shift_starts && sd.shift_starts[String(dmDay)]) || slots[(basePos + rot) % slots.length];
-    const sel = document.getElementById('dm-start');
-    const _is10h = parseWorkType(sd.work_type || '').hours === 10;
-    let dmOpts = [...slots];
-    if (_is10h && !dmOpts.includes('09:30')) dmOpts = ['09:30', ...dmOpts];
-    if (_is10h && !dmOpts.includes('10:00')) dmOpts.push('10:00');
-    sel.innerHTML = dmOpts.map(s => `<option value="${s}"${s===curStart?' selected':''}>${s}</option>`).join('');
-    updateDmPreview();
+    const curEnd   = (sd.shift_ends   && sd.shift_ends[String(dmDay)])   || addHours(curStart, sd.shift_hours || 9);
+    document.getElementById('dm-start').innerHTML = buildHalfHourOpts(curStart);
+    document.getElementById('dm-end').innerHTML   = buildHalfHourOpts(curEnd);
   } else {
     timeRow.style.display = 'none';
   }
-}
-function updateDmPreview() {
-  if (!dmKey) return;
-  const sd = schData[dmKey] || {};
-  const hours = sd.shift_hours || 9;
-  const start = document.getElementById('dm-start').value;
-  document.getElementById('dm-preview').textContent =
-    `퇴근: ${start} + ${hours===11.5?'11h30m':hours+'h'} 상주 → ${addHours(start, hours)}`;
 }
 function saveDayModal() {
   if (!dmKey) return;
@@ -2508,11 +2510,13 @@ function saveDayModal() {
   if (!sd.day_types)    sd.day_types    = {};
   if (!sd.off_days)     sd.off_days     = [];
   if (!sd.shift_starts) sd.shift_starts = {};
+  if (!sd.shift_ends)   sd.shift_ends   = {};
   if (dmType === '근무') {
     delete sd.day_types[String(dmDay)];
     const oi = sd.off_days.indexOf(dmDay);
     if (oi >= 0) sd.off_days.splice(oi, 1);
     sd.shift_starts[String(dmDay)] = document.getElementById('dm-start').value;
+    sd.shift_ends[String(dmDay)]   = document.getElementById('dm-end').value;
   } else {
     sd.day_types[String(dmDay)] = dmType;
     if (!sd.off_days.includes(dmDay)) sd.off_days.push(dmDay);
