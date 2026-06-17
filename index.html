@@ -675,32 +675,31 @@ let _checkedBranches = null; // null = not yet initialized (show all)
   toRemove.forEach(k => localStorage.removeItem(k));
 })();
 
-// 10시간 근무형태 직원 9:30 출근 마이그레이션 — 2026-07/08, 수원점·센텀점 제외
-(function migrateShiftHours() {
+// 10시간 근무형태 9:30 출근 마이그레이션 — 2026-07/08, 수원점·센텀점 제외
+// Firebase 데이터(data 객체)를 in-place 수정하고, 변경 여부를 반환
+const _migrationPushed = new Set();
+function migrate10hData(data, y, m) {
+  if (!(y === 2026 && (m === 7 || m === 8))) return false;
   const EXCLUDE = ['수원점', '센텀점'];
-  [{y:2026,m:7},{y:2026,m:8}].forEach(({y,m}) => {
-    const data = loadLs(y, m);
-    if (!data || Object.keys(data).length === 0) return;
-    let changed = false;
-    Object.entries(data).forEach(([k, sd]) => {
-      if (k.startsWith('__') || typeof sd !== 'object' || !sd) return;
-      const wt = parseWorkType(sd.work_type || '');
-      if (wt.hours !== 10) return;
-      const br = sd.branch || k.split('||')[0] || '';
-      if (EXCLUDE.some(b => br.includes(b))) return;
-      if (sd.shift_hours === 11.5 && sd.shift_slots && sd.shift_slots[0] === '09:30') return;
-      sd.shift_hours = 11.5;
-      sd.shift_slots = ['09:30'];
-      if (sd.shift_starts) {
-        Object.keys(sd.shift_starts).forEach(d => {
-          if (sd.shift_starts[d] === '10:00') sd.shift_starts[d] = '09:30';
-        });
-      }
-      changed = true;
-    });
-    if (changed) saveLs(y, m, data);
+  let changed = false;
+  Object.entries(data).forEach(([k, sd]) => {
+    if (k.startsWith('__') || typeof sd !== 'object' || !sd) return;
+    const wt = parseWorkType(sd.work_type || '');
+    if (wt.hours !== 10) return;
+    const br = sd.branch || k.split('||')[0] || '';
+    if (EXCLUDE.some(b => br.includes(b))) return;
+    if (sd.shift_hours === 11.5 && sd.shift_slots && sd.shift_slots[0] === '09:30') return;
+    sd.shift_hours = 11.5;
+    sd.shift_slots = ['09:30'];
+    if (sd.shift_starts) {
+      Object.keys(sd.shift_starts).forEach(d => {
+        if (sd.shift_starts[d] === '10:00') sd.shift_starts[d] = '09:30';
+      });
+    }
+    changed = true;
   });
-})();
+  return changed;
+}
 
 let curY = new Date().getFullYear();
 let curM = new Date().getMonth() + 1;
@@ -1038,6 +1037,13 @@ async function autoInitMissingMonths(branch) {
     try {
       const fb = await fbGetBranch(y, m, branch);
       if (fb) {
+        // 10시간 마이그레이션 적용
+        const _mk = `${y}_${m}_${branch}`;
+        if (!_migrationPushed.has(_mk)) {
+          const _ch = migrate10hData(fb, y, m);
+          if (_ch) await fbSetBranch(y, m, branch, fb).catch(()=>{});
+          _migrationPushed.add(_mk);
+        }
         // 이미 데이터 있음 — 신규 입사자만 추가
         const added = await calcMissingEmps(y, m, branch, fb);
         if (added) {
@@ -1096,6 +1102,13 @@ async function autoInitAllBranches() {
       try {
         const fb = await fbGetBranch(y, m, branch);
         if (fb) {
+          // 10시간 마이그레이션 적용
+          const _mk2 = `${y}_${m}_${branch}`;
+          if (!_migrationPushed.has(_mk2)) {
+            const _ch2 = migrate10hData(fb, y, m);
+            if (_ch2) await fbSetBranch(y, m, branch, fb).catch(()=>{});
+            _migrationPushed.add(_mk2);
+          }
           // 신규 입사자만 추가
           const added = await calcMissingEmps(y, m, branch, fb);
           if (added) {
@@ -1143,6 +1156,16 @@ function attachFb(y, m) {
       const fb = branch ? await fbGetBranch(y, m, branch) : await fbGetAll(y, m);
       if (fb) {
         fbListenerAttached = true;
+        // 10시간 마이그레이션: Firebase 데이터를 수정하고 1회만 다시 저장
+        const _migrKey = `${y}_${m}`;
+        if (!_migrationPushed.has(_migrKey)) {
+          const _changed = migrate10hData(fb, y, m);
+          if (_changed) {
+            const _brs = [...new Set(Object.values(fb).filter(v=>v&&v.branch).map(v=>v.branch))];
+            _brs.forEach(br => fbSetBranch(y, m, br, fb).catch(()=>{}));
+          }
+          _migrationPushed.add(_migrKey);
+        }
         setFbStatus(true, branch ? '🟢 동기화됨' : '🟢 전체 지점 로드됨');
         // 지점 뷰: 해당 지점 데이터만 갱신, 나머지는 유지
         const merged = branch
