@@ -1547,7 +1547,7 @@ function renderDashboard() {
     }).join('');
     body += `<tr style="background:${i%2?'#fff':'#FAFAFA'}">
       <td style="text-align:center;color:#aaa;font-size:12px">${i+1}</td>
-      <td style="font-weight:700;font-size:11px;max-width:80px;word-break:keep-all;white-space:normal;cursor:pointer;color:#4F46E5;text-decoration:underline" title="${br}" onclick="showBranchModal('${br}')">${br}</td>
+      <td style="font-weight:700;font-size:11px;max-width:80px;word-break:keep-all;white-space:normal;cursor:pointer;color:#4F46E5;text-decoration:underline" title="${br}" onclick="showBranchModal('${br}')">${br.replace('02. 강남사옥점 03. 강남구청점','02. 강남사옥점<br>03. 강남구청점')}</td>
       <td style="text-align:center;font-weight:800;font-size:15px;color:#4F46E5">${tot}</td>${cells}</tr>`;
   });
   const footC = BELT_ORDER.map(belt => {
