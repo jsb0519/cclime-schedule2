@@ -2467,7 +2467,7 @@ function selectDayType(type) {
     const basePos = sd.shift_base_offset !== undefined ? sd.shift_base_offset : 0;
     const rot = Math.floor((dmDay - 1) / ROT_INT);
     const curStart = (sd.shift_starts && sd.shift_starts[String(dmDay)]) || slots[(basePos + rot) % slots.length];
-    const curEnd   = (sd.shift_ends   && sd.shift_ends[String(dmDay)])   || addHours(curStart, sd.shift_hours || 9);
+    const curEnd   = (sd.shift_ends   && sd.shift_ends[String(dmDay)])   || addHours(curStart, hours);
     const _t30 = [];
     for (let h = 0; h <= 24; h++) { _t30.push(`${String(h).padStart(2,'0')}:00`); if (h < 24) _t30.push(`${String(h).padStart(2,'0')}:30`); }
     const _mkOpts = (cur) => _t30.map(t => `<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join('');
