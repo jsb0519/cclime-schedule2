@@ -847,6 +847,7 @@ async function onEmployeeData(resp) {
       //   - belt 변경: belt 필드만 업데이트
       //   - exit_date 변경: exit_date 필드만 업데이트
       let wtChanged = false;
+      const _wtChangedBrs = new Set();
       employees.forEach(emp => {
         const key = emp.branch + '||' + emp.name;
         const sd = schData[key];
@@ -872,12 +873,16 @@ async function onEmployeeData(resp) {
         }
 
         wtChanged = true;
+        _wtChangedBrs.add(emp.branch);
       });
 
       if (wtChanged) {
         saveLs(curY, curM, schData);
-        const branch = document.getElementById('branch-sel').value;
-        if (fbListenerAttached && branch) fbSetBranch(curY, curM, branch, schData).catch(() => {});
+        if (fbListenerAttached) {
+          const branch = document.getElementById('branch-sel').value;
+          const toSave = branch ? [branch] : [..._wtChangedBrs];
+          toSave.forEach(br => fbSetBranch(curY, curM, br, schData).catch(() => {}));
+        }
       }
     }
     if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
