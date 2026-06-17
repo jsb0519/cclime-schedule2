@@ -2428,7 +2428,10 @@ function selectDayType(type) {
     const rot = Math.floor((dmDay - 1) / ROT_INT);
     const curStart = (sd.shift_starts && sd.shift_starts[String(dmDay)]) || slots[(basePos + rot) % slots.length];
     const sel = document.getElementById('dm-start');
-    const dmOpts = (sd.shift_hours === 11.5 && !slots.includes('10:00')) ? [...slots, '10:00'] : slots;
+    const _is10h = parseWorkType(sd.work_type || '').hours === 10;
+    let dmOpts = [...slots];
+    if (_is10h && !dmOpts.includes('09:30')) dmOpts = ['09:30', ...dmOpts];
+    if (_is10h && !dmOpts.includes('10:00')) dmOpts.push('10:00');
     sel.innerHTML = dmOpts.map(s => `<option value="${s}"${s===curStart?' selected':''}>${s}</option>`).join('');
     updateDmPreview();
   } else {
