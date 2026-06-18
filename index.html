@@ -84,6 +84,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .d-amhalf{background:#E3F2FD;color:#1565C0;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
 .d-pmhalf{background:#E3F2FD;color:#1565C0;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
 .d-comp{background:#F3E5F5;color:#6A1B9A;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
+.d-edu{background:#E0F2F1;color:#00695C;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
 .d-sun td{background:#FFF5F5 !important}
 .d-sat td{background:#F0F8FF !important}
 .th-sun{color:#FF7043 !important}
@@ -140,6 +141,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .dm-type-btn.active[data-type="오전반차"]{background:#E3F2FD;color:#1565C0;border-color:#1565C0}
 .dm-type-btn.active[data-type="오후반차"]{background:#E3F2FD;color:#1565C0;border-color:#1565C0}
 .dm-type-btn.active[data-type="대휴"]{background:#F3E5F5;color:#6A1B9A;border-color:#6A1B9A}
+.dm-type-btn.active[data-type="교육"]{background:#E0F2F1;color:#00695C;border-color:#00695C}
 .dm-time-box{background:#F8F9FF;border-radius:10px;padding:12px 16px;margin-bottom:12px}
 /* ─ Excel Modal ─ */
 .xl-row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
@@ -296,6 +298,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
       <button class="dm-type-btn" data-type="오전반차" onclick="selectDayType('오전반차')">🌤 오전반차</button>
       <button class="dm-type-btn" data-type="오후반차" onclick="selectDayType('오후반차')">🌆 오후반차</button>
       <button class="dm-type-btn" data-type="대휴"    onclick="selectDayType('대휴')">🔄 대휴</button>
+      <button class="dm-type-btn" data-type="교육"    onclick="selectDayType('교육')">📚 교육</button>
     </div>
     <div class="dm-time-box" id="dm-time-row" style="display:none">
       <div class="f-row" style="margin-bottom:8px">
@@ -515,7 +518,7 @@ const BRANCH_MERGE = {
 function mergedBranch(b) { return BRANCH_MERGE[b] || b; }
 const DEFAULT_START = '10:00';
 const DAY_TYPES_CYCLE = ['휴무','연차','오전반차','오후반차','대휴'];
-const TYPE_CLS = {'휴무':'d-off','연차':'d-annual','오전반차':'d-amhalf','오후반차':'d-pmhalf','대휴':'d-comp'};
+const TYPE_CLS = {'휴무':'d-off','연차':'d-annual','오전반차':'d-amhalf','오후반차':'d-pmhalf','대휴':'d-comp','교육':'d-edu'};
 const MIN_YEAR = 2026, MIN_MONTH = 7; // 이동 가능 최소 월 (2026년 7월)
 
 function getMaxMonth() {
