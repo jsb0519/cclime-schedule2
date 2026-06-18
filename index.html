@@ -549,42 +549,39 @@ function fbBranchKey(branch) { return branch.replace(/[\.#\$\[\]\/]/g, '_'); }
 function fbBranchUrl(y, m, branch) {
   return `${FB_BASE}/schedule/${y}_${String(m).padStart(2,'0')}/${fbBranchKey(branch)}.json`;
 }
-/* 특정 지점 읽기 */
+/* 특정 지점 읽기 — 네트워크/HTTP 오류 시 throw, 데이터 없음(null JSON)은 null 반환 */
 async function fbGetBranch(y, m, branch) {
-  try {
-    const r = await fetchTimed(fbBranchUrl(y, m, branch));
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return fromFbData(await r.json());
-  } catch(e) { return null; }
+  const r = await fetchTimed(fbBranchUrl(y, m, branch));
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return fromFbData(await r.json());
 }
 /* 전체 지점 읽기 (읽기 전용 뷰) — 구형(flat) 및 신형(per-branch) 모두 지원
-   신형(지점별) 데이터가 구형 flat 데이터보다 항상 우선 적용 */
+   신형(지점별) 데이터가 구형 flat 데이터보다 항상 우선 적용
+   네트워크/HTTP 오류 시 throw, 데이터 없음은 null 반환 */
 async function fbGetAll(y, m) {
-  try {
-    const r = await fetchTimed(fbUrl(y, m));
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const raw = await r.json();
-    if (!raw || typeof raw !== 'object') return null;
-    const oldFlat = {}, newBranch = {};
-    for (const val of Object.values(raw)) {
-      if (!val || typeof val !== 'object') continue;
-      if (val.name && val.branch) {
-        // 구형 flat 구조
-        const e = normEntry(val);
-        if (e) oldFlat[e.branch + '||' + e.name] = e;
-      } else {
-        // 신형 per-branch 구조 — 먼저 온 키가 우선(중복 키 형식 충돌 방지)
-        for (const v of Object.values(val)) {
-          const e = normEntry(v);
-          const key = e && e.branch && e.name ? e.branch + '||' + e.name : null;
-          if (key && !(key in newBranch)) newBranch[key] = e;
-        }
+  const r = await fetchTimed(fbUrl(y, m));
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const raw = await r.json();
+  if (!raw || typeof raw !== 'object') return null;
+  const oldFlat = {}, newBranch = {};
+  for (const val of Object.values(raw)) {
+    if (!val || typeof val !== 'object') continue;
+    if (val.name && val.branch) {
+      // 구형 flat 구조
+      const e = normEntry(val);
+      if (e) oldFlat[e.branch + '||' + e.name] = e;
+    } else {
+      // 신형 per-branch 구조 — 먼저 온 키가 우선(중복 키 형식 충돌 방지)
+      for (const v of Object.values(val)) {
+        const e = normEntry(v);
+        const key = e && e.branch && e.name ? e.branch + '||' + e.name : null;
+        if (key && !(key in newBranch)) newBranch[key] = e;
       }
     }
-    // 신형 데이터로 구형 덮어쓰기 (지점별 저장이 항상 우선)
-    const result = { ...oldFlat, ...newBranch };
-    return Object.keys(result).length ? result : null;
-  } catch(e) { return null; }
+  }
+  // 신형 데이터로 구형 덮어쓰기 (지점별 저장이 항상 우선)
+  const result = { ...oldFlat, ...newBranch };
+  return Object.keys(result).length ? result : null;
 }
 /* 특정 지점만 쓰기 */
 async function fbSetBranch(y, m, branch, data) {
@@ -1129,39 +1126,15 @@ async function autoInitAllBranches() {
   }
   _allBranchInitRunning = false;
   if (generated > 0 && document.getElementById('view-schedule').classList.contains('active')) {
-    schData = await fbGetAll(curY, curM) || {};
+    schData = await fbGetAll(curY, curM).catch(() => null) || {};
     saveLs(curY, curM, schData);
     buildTable();
     setStat(`전체 지점 근무표 자동 초기화 완료 (${generated}건) · ${new Date().toLocaleTimeString('ko-KR')}`);
   }
 }
 
-/* ── 7·8월 전체 지점 일회성 재생성 (마스터 전용, 한 번만 실행) ── */
-async function _doOneTimeRegen() {
-  if (!isMaster()) return;
-  if (localStorage.getItem('cclime_regen_202607_done')) return;
-  if (employees.length === 0) return;
-  const allBranches = [...new Set(employees.map(e => e.branch))];
-  const months = [{y: 2026, m: 7}, {y: 2026, m: 8}];
-  let allOk = true;
-  for (const {y, m} of months) {
-    const sched = buildMonthSchedule(y, m, await getPrevOverflowOff(y, m));
-    saveLs(y, m, sched);
-    for (const branch of allBranches) {
-      await fbSetBranch(y, m, branch, sched).catch(() => { allOk = false; });
-      _autoInitDone.delete(`${branch}_${y}_${m}`);
-    }
-  }
-  if (allOk) {
-    localStorage.setItem('cclime_regen_202607_done', '1');
-    if (curY === 2026 && (curM === 7 || curM === 8)) {
-      const branch = document.getElementById('branch-sel').value;
-      const fresh = branch ? await fbGetBranch(curY, curM, branch) : await fbGetAll(curY, curM);
-      if (fresh) { schData = { ...schData, ...fresh }; saveLs(curY, curM, schData); buildTable(); }
-    }
-    setStat('7·8월 근무표 재생성 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
-  }
-}
+/* ── 7·8월 전체 지점 일회성 재생성 — 마이그레이션 완료, 재실행 방지 ── */
+async function _doOneTimeRegen() { return; }
 
 /* ── 5초 폴링 (읽기 전용 — 쓰기는 doSave만) ── */
 let fbListenerAttached = false;
@@ -2831,7 +2804,7 @@ async function doDownloadExcel() {
         if (dlY === curY && dlM === curM) {
           dlSchData = schData;
         } else {
-          const fb = branchFilter ? await fbGetBranch(dlY, dlM, branchFilter) : await fbGetAll(dlY, dlM);
+          const fb = branchFilter ? await fbGetBranch(dlY, dlM, branchFilter).catch(() => null) : await fbGetAll(dlY, dlM).catch(() => null);
           dlSchData = fb || {};
         }
 
