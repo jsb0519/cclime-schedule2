@@ -2169,6 +2169,7 @@ const MAX_RETRIES = 3;
 
 function scheduleAutoSave() {
   dirty = true;
+  if (_saving) _pendingSave = true;
   setStat('변경됨 · 저장 대기 중...');
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(flushSave, 1500);
