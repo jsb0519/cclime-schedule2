@@ -3259,15 +3259,22 @@ function renderLeaveTable() {
   const branch = document.getElementById('leave-branch-sel').value;
   const todayStr = new Date().toISOString().slice(0,10);
 
+  const _today = new Date();
+  const _todayStr = `${_today.getFullYear()}-${String(_today.getMonth()+1).padStart(2,'0')}-${String(_today.getDate()).padStart(2,'0')}`;
+  const _isCurrentYear = _leaveYear === _today.getFullYear();
+
   let emps = employees.filter(e => {
     if (branch && mergedBranch(e.branch) !== branch) return false;
-    if (e.hire_date && e.hire_date.length >= 7) {
-      const [hy] = e.hire_date.split('-').map(Number);
-      if (hy > _leaveYear) return false;
-    }
-    if (e.exit_date && e.exit_date.length >= 7) {
-      const [ey] = e.exit_date.split('-').map(Number);
-      if (ey < _leaveYear) return false;
+    if (_isCurrentYear) {
+      // 현황판과 동일 기준: 오늘 날짜 기준 재직자
+      if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > _todayStr) return false;
+      if (e.exit_date && e.exit_date.length >= 10 && e.exit_date <= _todayStr) return false;
+    } else {
+      // 과거/미래 연도: 해당 연도에 하루라도 재직한 직원
+      const yearEnd   = `${_leaveYear}-12-31`;
+      const yearStart = `${_leaveYear}-01-01`;
+      if (e.hire_date && e.hire_date.length >= 10 && e.hire_date > yearEnd)   return false;
+      if (e.exit_date && e.exit_date.length >= 10 && e.exit_date < yearStart) return false;
     }
     return true;
   });
