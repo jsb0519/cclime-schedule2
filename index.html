@@ -265,7 +265,8 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <select id="leave-year-sel" onchange="onLeaveYearChange()" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit"></select>
     <select id="leave-branch-sel" onchange="renderLeaveTable()" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit"><option value="">전체 지점</option></select>
     <button class="btn-refresh" onclick="loadLeaveManagement()">↻ 새로고침</button>
-    <span style="font-size:11px;color:#aaa;flex:1">※ 직원 행 클릭 → 사용 내역 상세 보기 &nbsp;|&nbsp; 연차·반차 마킹 시 자동 차감</span>
+    <button id="leave-sync-btn" style="padding:6px 13px;background:#fff;color:#4F46E5;border:1px solid #4F46E5;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer" onclick="syncLeaveFromSchedule()">📥 근무표에서 재동기화</button>
+    <span style="font-size:11px;color:#aaa;flex:1">※ 직원 행 클릭 → 사용 내역 상세 보기 &nbsp;|&nbsp; 탭 열 때 근무표에서 자동 집계</span>
   </div>
   <div class="lv-summary" id="leave-summary"></div>
   <div class="leave-tbl-wrap">
@@ -3239,20 +3240,68 @@ function onLeaveYearChange() {
 async function loadLeaveManagement() {
   if (_leaveLoading) return;
   _leaveLoading = true;
-  document.getElementById('leave-table-body').innerHTML =
-    '<tr><td colspan="9" style="text-align:center;padding:40px;color:#aaa">⏳ Firebase에서 불러오는 중...</td></tr>';
   try {
-    const [usageR, entR] = await Promise.all([
-      fetchTimed(`${FB_LEAVE_USAGE}/${_leaveYear}.json`, {}, 10000),
-      fetchTimed(`${FB_LEAVE_ENT}/${_leaveYear}.json`, {}, 10000)
-    ]);
-    _leaveData    = (usageR.ok ? await usageR.json() : null) || {};
-    _leaveEntData = (entR.ok   ? await entR.json()   : null) || {};
-    renderLeaveTable();
+    // 부여일수 수정 내역 로드
+    const entR = await fetchTimed(`${FB_LEAVE_ENT}/${_leaveYear}.json`, {}, 10000);
+    _leaveEntData = (entR.ok ? await entR.json() : null) || {};
+    // 근무표에서 연차 사용 내역 자동 스캔
+    await syncLeaveFromSchedule(false);
   } catch(e) {
     document.getElementById('leave-table-body').innerHTML =
       `<tr><td colspan="9" style="text-align:center;padding:40px;color:#e53935">오류: ${e.message}</td></tr>`;
   } finally { _leaveLoading = false; }
+}
+
+/* 근무표 Firebase에서 연차·반차 항목을 월별로 스캔해 집계 */
+async function syncLeaveFromSchedule(manual = true) {
+  const btn = document.getElementById('leave-sync-btn');
+  if (manual) {
+    if (btn) { btn.disabled = true; btn.textContent = '동기화 중...'; }
+  }
+
+  const today = new Date();
+  const maxMonth = _leaveYear < today.getFullYear() ? 12
+                 : _leaveYear > today.getFullYear() ? 0
+                 : today.getMonth() + 1;
+
+  const usageMap = {}; // { safeEmpKey: { log:{}, used_days:0 } }
+
+  for (let m = 1; m <= maxMonth; m++) {
+    document.getElementById('leave-table-body').innerHTML =
+      `<tr><td colspan="9" style="text-align:center;padding:40px;color:#aaa">⏳ ${_leaveYear}년 ${m}월 스캔 중... (${m}/${maxMonth})</td></tr>`;
+    try {
+      const fb = await fbGetAll(_leaveYear, m);
+      if (!fb) continue;
+      Object.entries(fb).forEach(([key, sd]) => {
+        if (key === '__overflow' || !sd || !sd.day_types) return;
+        const sk = safeEmpKey(key);
+        if (!usageMap[sk]) usageMap[sk] = { log: {}, used_days: 0 };
+        Object.entries(sd.day_types).forEach(([dayStr, type]) => {
+          const val = leaveDayValue(type);
+          if (val <= 0) return;
+          const dateStr = `${_leaveYear}-${String(m).padStart(2,'0')}-${String(parseInt(dayStr)).padStart(2,'0')}`;
+          usageMap[sk].log[dateStr.replace(/-/g,'_')] = { date: dateStr, type, days: val };
+        });
+      });
+    } catch(e) { console.warn(`${_leaveYear}-${m} 스캔 오류:`, e); }
+  }
+
+  // used_days 합산
+  Object.values(usageMap).forEach(u => {
+    u.used_days = Object.values(u.log).reduce((s, e) => s + e.days, 0);
+  });
+
+  // Firebase에 저장 (병렬)
+  await Promise.all(Object.entries(usageMap).map(([sk, data]) =>
+    fetchTimed(`${FB_LEAVE_USAGE}/${_leaveYear}/${sk}.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).catch(e => console.warn('저장 오류:', sk, e))
+  ));
+
+  _leaveData = usageMap;
+  renderLeaveTable();
+  if (manual && btn) { btn.disabled = false; btn.textContent = '📥 근무표에서 재동기화'; }
 }
 
 function renderLeaveTable() {
