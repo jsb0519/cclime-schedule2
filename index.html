@@ -170,6 +170,19 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 #branch-lock .bl-list{overflow-y:auto;display:flex;flex-direction:column;gap:7px}
 #branch-lock .bl-btn{padding:11px 14px;background:#f5f5ff;border:1.5px solid #e0e0f5;border-radius:9px;font-size:13px;font-weight:600;color:#1a1a2e;cursor:pointer;text-align:left;transition:.12s;font-family:inherit}
 #branch-lock .bl-btn:hover{background:#4F46E5;color:#fff;border-color:#4F46E5}
+/* ─ Annual Leave ─ */
+.leave-tbl-wrap{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);overflow:auto;max-height:calc(100vh - 220px)}
+.leave-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.leave-tbl th{background:#fff;color:#1a1a2e;padding:9px 8px;font-weight:700;white-space:nowrap;position:sticky;top:0;border-bottom:2px solid #e0e0e0;text-align:center;z-index:2}
+.leave-tbl th:nth-child(1),.leave-tbl th:nth-child(2){text-align:left}
+.leave-tbl td{padding:8px 6px;border-bottom:1px solid #f0f0f0;vertical-align:middle;text-align:center}
+.leave-tbl tr.emp-row:hover td{background:#f5f7ff;cursor:pointer}
+.leave-bar{height:5px;border-radius:3px;background:#e8e8e8;margin-top:4px;min-width:50px;overflow:hidden}
+.leave-bar-fill{height:100%;border-radius:3px;background:#4F46E5}
+.leave-rem-warn{color:#D97706;font-weight:800}
+.leave-rem-neg{color:#DC2626;font-weight:800}
+.leave-rem-ok{color:#059669;font-weight:800}
+.lv-summary{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
@@ -203,6 +216,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
   <div class="tabs">
     <button class="tab-btn active" id="tab-dashboard" onclick="showTab('dashboard')">현황판</button>
     <button class="tab-btn" id="tab-schedule" onclick="showTab('schedule')">근무표</button>
+    <button class="tab-btn" id="tab-annual" onclick="showTab('annual')">연차관리</button>
   </div>
   <span class="stat-text" id="stat-text">로딩 중...</span>
 </div>
@@ -241,6 +255,67 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
       <thead id="sch-head"></thead>
       <tbody id="sch-body"></tbody>
     </table>
+  </div>
+</div>
+
+<!-- ══ ANNUAL LEAVE ══ -->
+<div id="view-annual" class="view">
+  <div class="sch-controls">
+    <span style="font-size:14px;font-weight:800;color:#1a1a2e">📅 연차 관리</span>
+    <select id="leave-year-sel" onchange="onLeaveYearChange()" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit"></select>
+    <select id="leave-branch-sel" onchange="renderLeaveTable()" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit"><option value="">전체 지점</option></select>
+    <button class="btn-refresh" onclick="loadLeaveManagement()">↻ 새로고침</button>
+    <span style="font-size:11px;color:#aaa;flex:1">※ 직원 행 클릭 → 사용 내역 상세 보기 &nbsp;|&nbsp; 연차·반차 마킹 시 자동 차감</span>
+  </div>
+  <div class="lv-summary" id="leave-summary"></div>
+  <div class="leave-tbl-wrap">
+    <table class="leave-tbl">
+      <thead>
+        <tr>
+          <th style="padding-left:12px">지점</th>
+          <th>이름</th>
+          <th>벨트</th>
+          <th>입사일</th>
+          <th>부여일수</th>
+          <th>사용일수</th>
+          <th>잔여일수</th>
+          <th style="min-width:80px">사용률</th>
+          <th id="leave-ent-th" style="display:none">수정</th>
+        </tr>
+      </thead>
+      <tbody id="leave-table-body">
+        <tr><td colspan="9" style="text-align:center;padding:40px;color:#aaa">⏳ 로딩 중...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══ LEAVE DETAIL MODAL ══ -->
+<div class="overlay" id="leave-detail-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="width:min(560px,96vw);max-height:88vh;display:flex;flex-direction:column;padding:22px">
+    <h3 id="leave-detail-title" style="flex-shrink:0;margin-bottom:14px">연차 현황</h3>
+    <div id="leave-detail-body" style="overflow-y:auto;flex:1"></div>
+    <div class="modal-btns" style="flex-shrink:0;margin-top:12px">
+      <button class="btn-ok" onclick="document.getElementById('leave-detail-modal').classList.remove('open')">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ENTITLEMENT EDIT MODAL ══ -->
+<div class="overlay" id="ent-edit-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:340px;width:90vw">
+    <h3 id="ent-edit-title" style="margin-bottom:4px">연차 부여일수 수정</h3>
+    <div id="ent-edit-auto" style="font-size:11px;color:#888;margin-bottom:16px"></div>
+    <div class="f-row">
+      <label style="min-width:90px">부여일수</label>
+      <input type="number" id="ent-edit-input" min="0" max="30" step="0.5" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;width:100px">
+      <span style="font-size:13px;color:#555">일</span>
+    </div>
+    <div style="font-size:11px;color:#aaa;margin-bottom:12px;padding-left:102px">법정 일수와 같으면 자동 적용됩니다</div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="document.getElementById('ent-edit-modal').classList.remove('open')">취소</button>
+      <button class="btn-ok" onclick="saveEntitlementOverride()">저장</button>
+    </div>
   </div>
 </div>
 
@@ -369,6 +444,8 @@ function applyViewerMode() {
   _viewerMode = true;
   const dashBtn = document.getElementById('tab-dashboard');
   if (dashBtn) dashBtn.style.display = 'none';
+  const annualBtn = document.getElementById('tab-annual');
+  if (annualBtn) annualBtn.style.display = 'none';
   setTimeout(() => showTab('schedule'), 0);
   // employees가 이미 로드된 경우 직접 지점 선택 처리
   if (employees.length > 0) {
@@ -730,6 +807,7 @@ function showTab(t) {
   document.getElementById('view-' + t).classList.add('active');
   document.getElementById('tab-' + t).classList.add('active');
   if (t === 'schedule') renderSchedule();
+  else if (t === 'annual') initLeaveView();
 }
 
 let resignedEmployees = []; // 퇴직자 탭 데이터
@@ -2470,6 +2548,10 @@ function saveDayModal() {
   if (!sd.off_days)     sd.off_days     = [];
   if (!sd.shift_starts) sd.shift_starts = {};
   if (!sd.shift_ends)   sd.shift_ends   = {};
+
+  // 연차 추적: 이전 타입 기록
+  const oldType = sd.day_types[String(dmDay)] || ((sd.off_days||[]).includes(dmDay) ? '휴무' : '근무');
+
   if (dmType === '근무') {
     delete sd.day_types[String(dmDay)];
     const oi = sd.off_days.indexOf(dmDay);
@@ -2480,6 +2562,15 @@ function saveDayModal() {
     sd.day_types[String(dmDay)] = dmType;
     if (!sd.off_days.includes(dmDay)) sd.off_days.push(dmDay);
   }
+
+  // 연차·반차 변경 시 Firebase 사용 로그 자동 갱신
+  const oldIsLeave = leaveDayValue(oldType) > 0;
+  const newIsLeave = leaveDayValue(dmType) > 0;
+  if (oldIsLeave || newIsLeave) {
+    const dateStr = `${curY}-${String(curM).padStart(2,'0')}-${String(dmDay).padStart(2,'0')}`;
+    updateLeaveUsage(dmKey, curY, dateStr, oldType, dmType);
+  }
+
   closeDayModal();
   buildTable();
   scheduleAutoSave();
@@ -3025,6 +3116,306 @@ async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb, empList
 
 }
 
+
+/* ══════════════════════════════════════════
+   연차 관리 기능
+   ══════════════════════════════════════════ */
+
+/* ── 연차 유틸 ── */
+function leaveDayValue(type) {
+  if (type === '연차') return 1;
+  if (type === '오전반차' || type === '오후반차') return 0.5;
+  return 0;
+}
+
+function safeEmpKey(key) {
+  return key.replace(/[\.#\$\[\]\/\|]/g, '_');
+}
+
+// 근로기준법 기반 연차 부여일수 계산
+// 1년 미만: 1개월 개근시 1일 (최대 11일)
+// 1년 이상: 15일
+// 3년 이상: 2년마다 1일 추가 (최대 25일)
+function calcEntitlement(hireDateStr, refYear) {
+  if (!hireDateStr || hireDateStr.length < 10) return 15;
+  const hDate = new Date(hireDateStr + 'T00:00:00');
+  const today = new Date();
+  const refEnd = new Date(refYear, 11, 31, 23, 59, 59);
+  const refDate = today < refEnd ? today : refEnd;
+  const ms = refDate - hDate;
+  if (ms < 0) return 0;
+  const msPerYear = 365.25 * 24 * 3600 * 1000;
+  const years = ms / msPerYear;
+  if (years < 1) {
+    let months = 0;
+    const temp = new Date(hDate);
+    temp.setMonth(temp.getMonth() + 1);
+    while (temp <= refDate && months < 11) { months++; temp.setMonth(temp.getMonth() + 1); }
+    return months;
+  }
+  const fullYears = Math.floor(years);
+  const bonus = fullYears >= 3 ? Math.floor((fullYears - 1) / 2) : 0;
+  return Math.min(25, 15 + bonus);
+}
+
+/* ── Firebase 연차 경로 ── */
+const FB_LEAVE_USAGE = `${FB_BASE}/leave_usage`;
+const FB_LEAVE_ENT   = `${FB_BASE}/leave_entitlement`;
+
+function fbLeaveUsageUrl(year, empKey) {
+  return `${FB_LEAVE_USAGE}/${year}/${safeEmpKey(empKey)}.json`;
+}
+function fbLeaveEntUrl(year, empKey) {
+  return `${FB_LEAVE_ENT}/${year}/${safeEmpKey(empKey)}.json`;
+}
+
+/* 연차 사용 로그 갱신 — saveDayModal()에서 호출 */
+async function updateLeaveUsage(empKey, year, dateStr, oldType, newType) {
+  const url = fbLeaveUsageUrl(year, empKey);
+  try {
+    const r = await fetchTimed(url, {}, 6000);
+    const current = r.ok ? await r.json() : null;
+    const log = (current && current.log) ? { ...current.log } : {};
+    const safeDate = dateStr.replace(/-/g, '_');
+    delete log[safeDate];
+    const newVal = leaveDayValue(newType);
+    if (newVal > 0) log[safeDate] = { date: dateStr, type: newType, days: newVal };
+    const usedDays = Object.values(log).reduce((s, e) => s + (e.days || 0), 0);
+    await fetchTimed(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ used_days: usedDays, log })
+    });
+    // 연차관리 탭이 열려 있으면 즉시 갱신
+    if (document.getElementById('view-annual').classList.contains('active')) {
+      const sk = safeEmpKey(empKey);
+      if (!_leaveData[sk]) _leaveData[sk] = {};
+      _leaveData[sk].used_days = usedDays;
+      _leaveData[sk].log = log;
+      renderLeaveTable();
+    }
+  } catch(e) { console.warn('연차 사용 갱신 오류:', e); }
+}
+
+/* ── 연차관리 탭 상태 ── */
+let _leaveYear = new Date().getFullYear();
+let _leaveData = {};       // { safeEmpKey: { used_days, log } }
+let _leaveEntData = {};    // { safeEmpKey: number (override) }
+let _leaveLoading = false;
+
+function initLeaveView() {
+  // 연도 셀렉터 초기화
+  const sel = document.getElementById('leave-year-sel');
+  if (!sel.options.length) {
+    const cy = new Date().getFullYear();
+    for (let y = cy + 1; y >= cy - 2; y--) {
+      const opt = document.createElement('option');
+      opt.value = y; opt.textContent = y + '년';
+      if (y === cy) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    _leaveYear = cy;
+  }
+
+  // 지점 셀렉터 초기화
+  const brSel = document.getElementById('leave-branch-sel');
+  const branches = [...new Set(employees.map(e => mergedBranch(e.branch)))].sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
+  const curVal = brSel.value;
+  brSel.innerHTML = '<option value="">전체 지점</option>' + branches.map(b=>`<option value="${b}"${b===curVal?' selected':''}>${b}</option>`).join('');
+
+  // 마스터만 부여일수 수정 컬럼 표시
+  const th = document.getElementById('leave-ent-th');
+  if (th) th.style.display = isMaster() ? '' : 'none';
+
+  loadLeaveManagement();
+}
+
+function onLeaveYearChange() {
+  _leaveYear = parseInt(document.getElementById('leave-year-sel').value);
+  _leaveData = {}; _leaveEntData = {};
+  loadLeaveManagement();
+}
+
+async function loadLeaveManagement() {
+  if (_leaveLoading) return;
+  _leaveLoading = true;
+  document.getElementById('leave-table-body').innerHTML =
+    '<tr><td colspan="9" style="text-align:center;padding:40px;color:#aaa">⏳ Firebase에서 불러오는 중...</td></tr>';
+  try {
+    const [usageR, entR] = await Promise.all([
+      fetchTimed(`${FB_LEAVE_USAGE}/${_leaveYear}.json`, {}, 10000),
+      fetchTimed(`${FB_LEAVE_ENT}/${_leaveYear}.json`, {}, 10000)
+    ]);
+    _leaveData    = (usageR.ok ? await usageR.json() : null) || {};
+    _leaveEntData = (entR.ok   ? await entR.json()   : null) || {};
+    renderLeaveTable();
+  } catch(e) {
+    document.getElementById('leave-table-body').innerHTML =
+      `<tr><td colspan="9" style="text-align:center;padding:40px;color:#e53935">오류: ${e.message}</td></tr>`;
+  } finally { _leaveLoading = false; }
+}
+
+function renderLeaveTable() {
+  const branch = document.getElementById('leave-branch-sel').value;
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  let emps = employees.filter(e => {
+    if (branch && mergedBranch(e.branch) !== branch) return false;
+    if (e.hire_date && e.hire_date.length >= 7) {
+      const [hy] = e.hire_date.split('-').map(Number);
+      if (hy > _leaveYear) return false;
+    }
+    if (e.exit_date && e.exit_date.length >= 7) {
+      const [ey] = e.exit_date.split('-').map(Number);
+      if (ey < _leaveYear) return false;
+    }
+    return true;
+  });
+
+  const bIdx2 = e => { const i = BELT_ORDER.indexOf(e.belt); return i >= 0 ? i : 8; };
+  emps.sort((a,b) => {
+    const ba=parseInt(a.branch)||999, bb=parseInt(b.branch)||999;
+    if (ba!==bb) return ba-bb;
+    return bIdx2(a) - bIdx2(b);
+  });
+
+  // 요약 카드
+  let totalEnt=0, totalUsed=0;
+  emps.forEach(emp => {
+    const key = mergedBranch(emp.branch)+'||'+emp.name;
+    const sk = safeEmpKey(key);
+    const ov = _leaveEntData[sk];
+    totalEnt  += ov != null ? ov : calcEntitlement(emp.hire_date||'', _leaveYear);
+    totalUsed += (_leaveData[sk]||{}).used_days || 0;
+  });
+  const totalRem = totalEnt - totalUsed;
+  document.getElementById('leave-summary').innerHTML = `
+    <div class="stat-card"><div class="slbl">대상 인원</div><div class="sval" style="color:#4F46E5">${emps.length}명</div><div class="ssub">${_leaveYear}년 재직자</div></div>
+    <div class="stat-card"><div class="slbl">총 부여일수</div><div class="sval">${totalEnt}일</div><div class="ssub">법정 기준</div></div>
+    <div class="stat-card"><div class="slbl">총 사용일수</div><div class="sval" style="color:#DC2626">${totalUsed}일</div><div class="ssub">${_leaveYear}년 합산</div></div>
+    <div class="stat-card"><div class="slbl">총 잔여일수</div><div class="sval ${totalRem<0?'sval-neg':''}">${totalRem}일</div><div class="ssub">&nbsp;</div></div>`;
+
+  let html = '';
+  emps.forEach((emp, i) => {
+    const key = mergedBranch(emp.branch)+'||'+emp.name;
+    const sk  = safeEmpKey(key);
+    const ov  = _leaveEntData[sk];
+    const ent = ov != null ? ov : calcEntitlement(emp.hire_date||'', _leaveYear);
+    const used = (_leaveData[sk]||{}).used_days || 0;
+    const rem  = ent - used;
+    const pct  = ent > 0 ? Math.min(100, Math.round(used / ent * 100)) : 0;
+    const remCls = rem < 0 ? 'leave-rem-neg' : rem <= 3 ? 'leave-rem-warn' : 'leave-rem-ok';
+    const bS = BS[emp.belt||'화이트']||{bg:'#eee',fg:'#333'};
+    const escapedKey = key.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    html += `<tr class="emp-row" onclick="showLeaveDetail('${escapedKey}')">
+      <td style="text-align:left;padding:8px 12px;font-size:11px;color:#666">${emp.branch}</td>
+      <td style="text-align:left;font-weight:700;font-size:13px">${emp.name}</td>
+      <td><span style="background:${bS.bg};color:${bS.fg};padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700">${emp.belt||'화이트'}</span></td>
+      <td style="font-size:11px;color:#888">${emp.hire_date||'-'}</td>
+      <td style="font-weight:700;color:#4F46E5">${ent}일${ov!=null?' <span style="font-size:9px;color:#aaa">(수정)</span>':''}</td>
+      <td style="font-weight:700;color:#DC2626">${used}일</td>
+      <td class="${remCls}">${rem}일</td>
+      <td style="min-width:80px"><div style="font-size:10px;color:#aaa;text-align:right;margin-bottom:2px">${pct}%</div><div class="leave-bar"><div class="leave-bar-fill" style="width:${pct}%;background:${pct>=100?'#DC2626':pct>=80?'#D97706':'#4F46E5'}"></div></div></td>
+      <td style="display:${isMaster()?'':'none'}">${isMaster()?`<button onclick="event.stopPropagation();editEntitlement('${escapedKey}')" style="padding:3px 10px;border:1px solid #ddd;border-radius:6px;background:#fff;font-size:11px;cursor:pointer">수정</button>`:''}</td>
+    </tr>`;
+  });
+  document.getElementById('leave-table-body').innerHTML = html ||
+    '<tr><td colspan="9" style="text-align:center;padding:40px;color:#aaa">표시할 직원이 없습니다</td></tr>';
+}
+
+/* ── 연차 사용 내역 모달 ── */
+function showLeaveDetail(key) {
+  const sk  = safeEmpKey(key);
+  const emp = employees.find(e => mergedBranch(e.branch)+'||'+e.name === key) || {};
+  const ov  = _leaveEntData[sk];
+  const ent = ov != null ? ov : calcEntitlement(emp.hire_date||'', _leaveYear);
+  const usage = _leaveData[sk] || {};
+  const used  = usage.used_days || 0;
+  const rem   = ent - used;
+  const log   = usage.log || {};
+  const entries = Object.values(log).sort((a,b) => a.date.localeCompare(b.date));
+  const remCls = rem < 0 ? 'sval-neg' : rem <= 3 ? 'sval-warn' : 'sval-pos';
+
+  document.getElementById('leave-detail-title').textContent =
+    `📅 ${emp.name||key} · ${_leaveYear}년 연차 현황`;
+  document.getElementById('leave-detail-body').innerHTML = `
+    <div class="lv-summary" style="margin-bottom:14px">
+      <div class="stat-card" style="min-width:80px;text-align:center">
+        <div class="slbl">부여일수</div>
+        <div class="sval" style="color:#4F46E5">${ent}일</div>
+        <div class="ssub">${ov!=null?'수정됨':'법정 기준'}</div>
+      </div>
+      <div class="stat-card" style="min-width:80px;text-align:center">
+        <div class="slbl">사용일수</div>
+        <div class="sval" style="color:#DC2626">${used}일</div>
+        <div class="ssub">${_leaveYear}년 합산</div>
+      </div>
+      <div class="stat-card" style="min-width:80px;text-align:center">
+        <div class="slbl">잔여일수</div>
+        <div class="sval ${remCls}">${rem}일</div>
+        <div class="ssub">&nbsp;</div>
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#1a1a2e">사용 내역 (${entries.length}건)</div>
+    ${entries.length ? `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f5f7ff">
+        <th style="padding:7px 10px;text-align:left;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">날짜</th>
+        <th style="padding:7px 8px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">유형</th>
+        <th style="padding:7px 8px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">차감일수</th>
+      </tr></thead>
+      <tbody>${entries.map(e => {
+        const typeColor = e.type==='연차'?'#3949AB':e.type.includes('반차')?'#1565C0':'#555';
+        return `<tr style="border-bottom:1px solid #f0f0f0">
+          <td style="padding:7px 10px">${e.date}</td>
+          <td style="padding:7px 8px;text-align:center;color:${typeColor};font-weight:600">${e.type}</td>
+          <td style="padding:7px 8px;text-align:center;font-weight:700;color:#4F46E5">${e.days}일</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>` : '<div style="text-align:center;color:#aaa;padding:24px;font-size:13px">연차 사용 내역이 없습니다</div>'}
+    ${isMaster() ? `<div style="margin-top:14px;text-align:right"><button onclick="document.getElementById('leave-detail-modal').classList.remove('open');editEntitlement('${key.replace(/'/g,"\\'")}');" style="padding:6px 14px;border:1px solid #4F46E5;border-radius:8px;background:#fff;color:#4F46E5;font-size:12px;font-weight:600;cursor:pointer">✏️ 부여일수 수정</button></div>` : ''}
+  `;
+  document.getElementById('leave-detail-modal').classList.add('open');
+}
+
+/* ── 부여일수 수정 모달 ── */
+let _editEntKey = null;
+function editEntitlement(key) {
+  _editEntKey = key;
+  const sk   = safeEmpKey(key);
+  const emp  = employees.find(e => mergedBranch(e.branch)+'||'+e.name === key) || {};
+  const auto = calcEntitlement(emp.hire_date||'', _leaveYear);
+  const ov   = _leaveEntData[sk];
+  document.getElementById('ent-edit-title').textContent = `${emp.name||key} — 연차 부여일수 수정`;
+  document.getElementById('ent-edit-auto').textContent  = `법정 기준: ${auto}일 (입사일 ${emp.hire_date||'?'} 기준)`;
+  document.getElementById('ent-edit-input').value = ov != null ? ov : auto;
+  document.getElementById('ent-edit-modal').classList.add('open');
+}
+
+async function saveEntitlementOverride() {
+  if (!_editEntKey) return;
+  const val = parseFloat(document.getElementById('ent-edit-input').value);
+  if (isNaN(val) || val < 0 || val > 30) { alert('0~30 사이 값을 입력해주세요 (0.5 단위 가능)'); return; }
+  const sk   = safeEmpKey(_editEntKey);
+  const emp  = employees.find(e => mergedBranch(e.branch)+'||'+e.name === _editEntKey) || {};
+  const auto = calcEntitlement(emp.hire_date||'', _leaveYear);
+  try {
+    const url = fbLeaveEntUrl(_leaveYear, _editEntKey);
+    if (Math.abs(val - auto) < 0.01) {
+      await fetchTimed(url, { method: 'DELETE' });
+      delete _leaveEntData[sk];
+    } else {
+      await fetchTimed(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(val)
+      });
+      _leaveEntData[sk] = val;
+    }
+    document.getElementById('ent-edit-modal').classList.remove('open');
+    renderLeaveTable();
+  } catch(e) { alert('저장 오류: ' + e.message); }
+}
 
 loadEmployees();
 setInterval(loadEmployees, 5*60*1000);
