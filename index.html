@@ -302,6 +302,30 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
   </div>
 </div>
 
+<!-- ══ LEAVE ENTRY ADD MODAL ══ -->
+<div class="overlay" id="leave-entry-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:360px;width:92vw">
+    <h3 id="leave-entry-title">연차 사용 날짜 추가</h3>
+    <div id="leave-entry-name" style="font-size:12px;color:#888;margin-bottom:16px"></div>
+    <div class="f-row">
+      <label>날짜</label>
+      <input type="date" id="leave-entry-date" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;width:160px">
+    </div>
+    <div class="f-row">
+      <label>유형</label>
+      <select id="leave-entry-type" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit">
+        <option value="연차">📅 연차 (1일)</option>
+        <option value="오전반차">🌤 오전반차 (0.5일)</option>
+        <option value="오후반차">🌆 오후반차 (0.5일)</option>
+      </select>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="document.getElementById('leave-entry-modal').classList.remove('open')">취소</button>
+      <button class="btn-ok" onclick="saveLeaveEntry()">저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ ENTITLEMENT EDIT MODAL ══ -->
 <div class="overlay" id="ent-edit-modal" onclick="if(event.target===this)this.classList.remove('open')">
   <div class="modal" style="max-width:340px;width:90vw">
@@ -3240,12 +3264,21 @@ function onLeaveYearChange() {
 async function loadLeaveManagement() {
   if (_leaveLoading) return;
   _leaveLoading = true;
+  document.getElementById('leave-table-body').innerHTML =
+    '<tr><td colspan="9" style="text-align:center;padding:40px;color:#aaa">⏳ 불러오는 중...</td></tr>';
   try {
-    // 부여일수 수정 내역 로드
-    const entR = await fetchTimed(`${FB_LEAVE_ENT}/${_leaveYear}.json`, {}, 10000);
-    _leaveEntData = (entR.ok ? await entR.json() : null) || {};
-    // 근무표에서 연차 사용 내역 자동 스캔
-    await syncLeaveFromSchedule(false);
+    const [usageR, entR] = await Promise.all([
+      fetchTimed(`${FB_LEAVE_USAGE}/${_leaveYear}.json`, {}, 10000),
+      fetchTimed(`${FB_LEAVE_ENT}/${_leaveYear}.json`, {}, 10000)
+    ]);
+    _leaveData    = (usageR.ok ? await usageR.json() : null) || {};
+    _leaveEntData = (entR.ok   ? await entR.json()   : null) || {};
+    // 저장된 데이터 없을 때만 근무표에서 자동 동기화
+    if (Object.keys(_leaveData).length === 0) {
+      await syncLeaveFromSchedule(false);
+    } else {
+      renderLeaveTable();
+    }
   } catch(e) {
     document.getElementById('leave-table-body').innerHTML =
       `<tr><td colspan="9" style="text-align:center;padding:40px;color:#e53935">오류: ${e.message}</td></tr>`;
@@ -3254,6 +3287,7 @@ async function loadLeaveManagement() {
 
 /* 근무표 Firebase에서 연차·반차 항목을 월별로 스캔해 집계 */
 async function syncLeaveFromSchedule(manual = true) {
+  if (manual && !confirm('근무표에서 재동기화하면 수동으로 추가한 내역이 덮어씌워집니다.\n계속하시겠습니까?')) return;
   const btn = document.getElementById('leave-sync-btn');
   if (manual) {
     if (btn) { btn.disabled = true; btn.textContent = '동기화 중...'; }
@@ -3412,26 +3446,92 @@ function showLeaveDetail(key) {
         <div class="ssub">&nbsp;</div>
       </div>
     </div>
-    <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#1a1a2e">사용 내역 (${entries.length}건)</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:700;color:#1a1a2e">사용 내역 (${entries.length}건)</div>
+      <button onclick="openLeaveEntryModal('${key.replace(/'/g,"\\'")}');document.getElementById('leave-detail-modal').classList.remove('open')" style="padding:4px 12px;background:#4F46E5;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">+ 날짜 추가</button>
+    </div>
     ${entries.length ? `
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="background:#f5f7ff">
         <th style="padding:7px 10px;text-align:left;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">날짜</th>
         <th style="padding:7px 8px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">유형</th>
-        <th style="padding:7px 8px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">차감일수</th>
+        <th style="padding:7px 8px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0">일수</th>
+        <th style="padding:7px 8px;text-align:center;font-weight:600;color:#555;border-bottom:1px solid #e0e0e0"></th>
       </tr></thead>
       <tbody>${entries.map(e => {
         const typeColor = e.type==='연차'?'#3949AB':e.type.includes('반차')?'#1565C0':'#555';
+        const sd = e.date.replace(/-/g,'_');
+        const ek = key.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
         return `<tr style="border-bottom:1px solid #f0f0f0">
           <td style="padding:7px 10px">${e.date}</td>
           <td style="padding:7px 8px;text-align:center;color:${typeColor};font-weight:600">${e.type}</td>
           <td style="padding:7px 8px;text-align:center;font-weight:700;color:#4F46E5">${e.days}일</td>
+          <td style="padding:7px 8px;text-align:center"><button onclick="deleteLeaveEntry('${ek}','${sd}')" style="padding:2px 8px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#e53935;font-size:11px;cursor:pointer">삭제</button></td>
         </tr>`;
       }).join('')}</tbody>
-    </table>` : '<div style="text-align:center;color:#aaa;padding:24px;font-size:13px">연차 사용 내역이 없습니다</div>'}
+    </table>` : '<div style="text-align:center;color:#aaa;padding:20px;font-size:13px">연차 사용 내역이 없습니다</div>'}
     ${isMaster() ? `<div style="margin-top:14px;text-align:right"><button onclick="document.getElementById('leave-detail-modal').classList.remove('open');editEntitlement('${key.replace(/'/g,"\\'")}');" style="padding:6px 14px;border:1px solid #4F46E5;border-radius:8px;background:#fff;color:#4F46E5;font-size:12px;font-weight:600;cursor:pointer">✏️ 부여일수 수정</button></div>` : ''}
   `;
   document.getElementById('leave-detail-modal').classList.add('open');
+}
+
+/* ── 연차 사용 날짜 추가 ── */
+let _leaveEntryEmpKey = null;
+
+function openLeaveEntryModal(empKey) {
+  _leaveEntryEmpKey = empKey;
+  const emp = employees.find(e => mergedBranch(e.branch)+'||'+e.name === empKey) || {};
+  document.getElementById('leave-entry-title').textContent = '연차 사용 날짜 추가';
+  document.getElementById('leave-entry-name').textContent  = `${emp.name||empKey} · ${_leaveYear}년`;
+  document.getElementById('leave-entry-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('leave-entry-type').value = '연차';
+  document.getElementById('leave-entry-modal').classList.add('open');
+}
+
+async function saveLeaveEntry() {
+  if (!_leaveEntryEmpKey) return;
+  const dateStr = document.getElementById('leave-entry-date').value;
+  const type    = document.getElementById('leave-entry-type').value;
+  if (!dateStr) { alert('날짜를 선택해주세요'); return; }
+  if (parseInt(dateStr.slice(0,4)) !== _leaveYear) {
+    alert(`${_leaveYear}년 날짜만 입력할 수 있습니다`); return;
+  }
+  const sk  = safeEmpKey(_leaveEntryEmpKey);
+  const cur = _leaveData[sk] || { log: {}, used_days: 0 };
+  const log = { ...cur.log };
+  const safeDate = dateStr.replace(/-/g,'_');
+  log[safeDate] = { date: dateStr, type, days: leaveDayValue(type) };
+  const used_days = Object.values(log).reduce((s,e) => s+e.days, 0);
+  const updated = { used_days, log };
+  try {
+    await fetchTimed(fbLeaveUsageUrl(_leaveYear, _leaveEntryEmpKey), {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(updated)
+    });
+    _leaveData[sk] = updated;
+    document.getElementById('leave-entry-modal').classList.remove('open');
+    renderLeaveTable();
+    showLeaveDetail(_leaveEntryEmpKey);
+  } catch(e) { alert('저장 오류: ' + e.message); }
+}
+
+async function deleteLeaveEntry(empKey, safeDate) {
+  if (!confirm('이 연차 기록을 삭제하시겠습니까?')) return;
+  const sk  = safeEmpKey(empKey);
+  const cur = _leaveData[sk] || { log: {}, used_days: 0 };
+  const log = { ...cur.log };
+  delete log[safeDate];
+  const used_days = Object.values(log).reduce((s,e) => s+e.days, 0);
+  const updated = { used_days, log };
+  try {
+    await fetchTimed(fbLeaveUsageUrl(_leaveYear, empKey), {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(updated)
+    });
+    _leaveData[sk] = updated;
+    renderLeaveTable();
+    showLeaveDetail(empKey);
+  } catch(e) { alert('삭제 오류: ' + e.message); }
 }
 
 /* ── 부여일수 수정 모달 ── */
