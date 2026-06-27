@@ -2281,15 +2281,7 @@ function scheduleAutoSave() {
 function flushSave() {
   saveLs(curY, curM, schData); // 로컬엔 항상 즉시 저장
   const branch = document.getElementById('branch-sel').value;
-  if (!branch) {
-    if (!isMaster()) { dirty = false; return; }
-    // 마스터 전체지점 뷰: 변경된 데이터를 지점별로 각각 Firebase에 저장
-    const brs = [...new Set(Object.values(schData).filter(v => v && v.branch).map(v => v.branch))];
-    brs.forEach(br => fbSetBranch(curY, curM, br, schData).catch(() => {}));
-    dirty = false;
-    setStat('자동 저장 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
-    return;
-  }
+  if (!branch) { dirty = false; return; }
   if (_saving) {
     _pendingSave = true; // 요청 중이면 완료 후 재저장 예약
     return;
@@ -2371,7 +2363,7 @@ function mkEntry(emp) {
 
 function buildTable() {
   const branch = document.getElementById('branch-sel').value;
-  const isReadOnly = (!branch && !isMaster()) || _viewerMode || isBranchLocked();
+  const isReadOnly = !branch || _viewerMode || isBranchLocked();
   const origBtn = document.getElementById('btn-orig');
   if (origBtn) origBtn.style.display = (!branch || _viewerMode) ? 'none' : '';
   const fbStatus = document.getElementById('fb-status');
