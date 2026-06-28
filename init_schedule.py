@@ -1,7 +1,7 @@
 import json, re, urllib.request, urllib.parse, calendar, sys, random
 from datetime import date
 
-SHEET_ID = '1kXGHbBBIAIXoNkXbEXzck0oKGF9RYQddhO279HociSo'
+SHEET_ID = '1lL4P4yEXhBl-PCk8ErBDQerSHDPJBDErBYBrNQG4gOQ'
 GID      = '0'
 FB_BASE  = 'https://cclime-schedule-cb047-default-rtdb.asia-southeast1.firebasedatabase.app'
 BELT_ORDER = ['골드','실버','블랙','레드','블루','퍼플','옐로우','화이트','실습생']
