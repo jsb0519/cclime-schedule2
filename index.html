@@ -602,6 +602,7 @@ function applyViewerBranch(branch) {
 
 function _doBranchChange() {
   schData = loadLs(curY, curM);
+  _activeBranch = document.getElementById('branch-sel').value;
   renderBranchFilter();
   buildTable();
   attachFb(curY, curM);
@@ -816,6 +817,7 @@ if (curY < MIN_YEAR || (curY === MIN_YEAR && curM < MIN_MONTH)) {
   curY = MIN_YEAR; curM = MIN_MONTH;
 }
 let dirty = false;
+let _activeBranch = '';
 let editKey = null;
 let dmKey = null, dmDay = null, dmType = null;
 
@@ -1152,14 +1154,14 @@ async function autoInitMissingMonths(branch) {
         if (added) {
           const updated = { ...fb, ...added };
           await fbSetBranch(y, m, branch, updated);
-          if (y === curY && m === curM) {
+          if (y === curY && m === curM && !dirty) {
             schData = { ...Object.fromEntries(Object.entries(schData).filter(([,v]) => v.branch !== branch)), ...updated };
             saveLs(y, m, schData);
             if (document.getElementById('view-schedule').classList.contains('active')) buildTable();
           }
         } else {
           _autoInitDone.add(key);
-          if (y === curY && m === curM) {
+          if (y === curY && m === curM && !dirty) {
             const merged = { ...Object.fromEntries(Object.entries(schData).filter(([,v]) => v.branch !== branch)), ...fb };
             if (JSON.stringify(merged) !== JSON.stringify(schData)) {
               schData = merged; saveLs(y, m, schData);
@@ -1728,6 +1730,12 @@ function renderDashboard() {
 /* ── Schedule 렌더 ── */
 function renderSchedule() {
   document.getElementById('month-lbl').textContent = `${curY}년 ${curM}월`;
+  if (dirty) {
+    clearTimeout(_saveTimer);
+    saveLs(curY, curM, schData);
+    if (_activeBranch && !_saving) _doSave(_activeBranch);
+    dirty = false;
+  }
   schData = loadLs(curY, curM);
   renderBranchFilter();
   buildTable();
@@ -2289,19 +2297,30 @@ function flushSave() {
   _doSave(branch);
 }
 
-function _doSave(branch, retryCount = 0) {
+function _doSave(branch, retryCount = 0, _y, _m, _snapData) {
+  // 재시도 시 전역변수 변경에 의한 오염 방지: 첫 호출 시 y/m/데이터를 캡처해서 재시도까지 유지
+  const y = _y !== undefined ? _y : curY;
+  const m = _m !== undefined ? _m : curM;
+  if (_snapData === undefined) {
+    _snapData = {};
+    for (const [k, v] of Object.entries(schData)) {
+      if (v && typeof v === 'object' && v.branch === branch) _snapData[k] = v;
+    }
+  }
   _saving = true;
   _pendingSave = false;
   setFbStatus(null, '📤 저장 중...');
-  fbSetBranch(curY, curM, branch, schData)
+  fbSetBranch(y, m, branch, _snapData)
     .then(() => {
       _saving = false;
       dirty = false; // Firebase 저장 완료 후에 dirty 해제
       setFbStatus(true, '🟢 저장 완료');
       setStat('자동 저장 완료 · ' + new Date().toLocaleTimeString('ko-KR'));
-      refreshOverflow(curY, curM, branch); // 수동 편집 반영 → 다음달 생성용 overflow 갱신
-      saveLs(curY, curM, schData);         // __overflow 갱신 후 로컬 재저장
-      if (_pendingSave) { // 대기 중인 변경이 있으면 즉시 재저장
+      if (y === curY && m === curM) {
+        refreshOverflow(y, m, branch); // 수동 편집 반영 → 다음달 생성용 overflow 갱신
+        saveLs(y, m, schData);         // __overflow 갱신 후 로컬 재저장
+      }
+      if (_pendingSave) { // 대기 중인 변경이 있으면 즉시 재저장 (현재 상태 기준 새 캡처)
         saveLs(curY, curM, schData);
         _doSave(branch);
       }
@@ -2311,7 +2330,7 @@ function _doSave(branch, retryCount = 0) {
       if (retryCount < MAX_RETRIES) {
         const delay = 1000 * Math.pow(2, retryCount); // 지수 백오프
         setFbStatus(null, `⚠️ 재시도 중... (${retryCount + 1}/${MAX_RETRIES})`);
-        setTimeout(() => _doSave(branch, retryCount + 1), delay);
+        setTimeout(() => _doSave(branch, retryCount + 1, y, m, _snapData), delay); // 캡처된 값 재사용
       } else {
         dirty = false; // 최종 실패 시에도 dirty 해제
         setFbStatus(false, '🔴 저장 실패: ' + e.message);
@@ -2644,16 +2663,34 @@ function saveModal() {
 /* ── Nav ── */
 function prevMonth() {
   if (curY <= MIN_YEAR && curM <= MIN_MONTH) return;
-  clearTimeout(_saveTimer); dirty = false; _saving = false; _pendingSave = false;
+  clearTimeout(_saveTimer);
+  if (dirty) {
+    saveLs(curY, curM, schData);
+    if (_activeBranch && !_saving) _doSave(_activeBranch);
+    dirty = false;
+  }
+  _saving = false; _pendingSave = false;
   curM--; if (curM<1){curM=12;curY--;} renderSchedule();
 }
 function nextMonth() {
   const [maxY, maxM] = getMaxMonth();
   if (curY > maxY || (curY === maxY && curM >= maxM)) return;
-  clearTimeout(_saveTimer); dirty = false; _saving = false; _pendingSave = false;
+  clearTimeout(_saveTimer);
+  if (dirty) {
+    saveLs(curY, curM, schData);
+    if (_activeBranch && !_saving) _doSave(_activeBranch);
+    dirty = false;
+  }
+  _saving = false; _pendingSave = false;
   curM++; if (curM>12){curM=1;curY++;} renderSchedule();
 }
 function onBranchChange() {
+  if (dirty) {
+    clearTimeout(_saveTimer);
+    saveLs(curY, curM, schData);
+    if (_activeBranch && !_saving) _doSave(_activeBranch);
+    dirty = false;
+  }
   _doBranchChange();
 }
 function populateBranches() {
@@ -2783,7 +2820,7 @@ function openExcelModal() {
     const key = `${y}_${m}`;
     if (!defaultKey) defaultKey = key; // MIN_MONTH 이후 첫 달을 기본 선택
     chips.push(
-      `<label class="xl-mc" data-key="${key}" onclick="xlToggleMonth(this)">` +
+      `<label class="xl-mc" data-key="${key}" onclick="xlToggleMonth(this,event)">` +
       `<input type="checkbox" value="${key}">${y}년 ${m}월</label>`
     );
   }
@@ -2831,7 +2868,8 @@ function xlVerChange() {
   }
 }
 
-function xlToggleMonth(el) {
+function xlToggleMonth(el, evt) {
+  if (evt) evt.preventDefault(); // 브라우저가 label 클릭 시 input을 자동 토글하는 동작 방지
   const cb = el.querySelector('input');
   cb.checked = !cb.checked;
   el.classList.toggle('on', cb.checked);
@@ -3564,6 +3602,10 @@ async function saveEntitlementOverride() {
     renderLeaveTable();
   } catch(e) { alert('저장 오류: ' + e.message); }
 }
+
+window.addEventListener('beforeunload', () => {
+  if (dirty) saveLs(curY, curM, schData);
+});
 
 loadEmployees();
 setInterval(loadEmployees, 5*60*1000);
