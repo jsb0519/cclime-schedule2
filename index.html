@@ -453,11 +453,16 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
     <h3 id="modal-title">근무 시간 설정</h3>
     <div class="f-row">
       <label>출근 시간</label>
-      <input type="time" id="m-start" value="10:00" oninput="updatePreview()">
+      <select id="m-start" onchange="updatePreview()" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;min-width:110px"></select>
+    </div>
+    <div class="f-row">
+      <label>퇴근 시간</label>
+      <select id="m-end" onchange="updatePreview()" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;min-width:110px"></select>
     </div>
     <div class="f-hint" id="m-preview"></div>
     <div class="modal-btns">
       <button class="btn-cancel" onclick="closeModal()">취소</button>
+      <button style="padding:8px 14px;background:#fff;color:#059669;border:1px solid #059669;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit" onclick="resetRotation()">↺ 로테이션 복원</button>
       <button class="btn-ok" onclick="saveModal()">저장</button>
     </div>
   </div>
@@ -2624,37 +2629,58 @@ function openModal(key) {
   const belt  = sd.belt || emp.belt || '화이트';
   const wt    = parseWorkType(sd.work_type || emp.work_type || '');
   const hours = sd.shift_hours || wt.hours + 1 || (BELT_HOURS[belt]||8) + 1;
-  const curSlot = sd.shift_slots && sd.shift_slots[0] || sd.shift_start || DEFAULT_START;
-  document.getElementById('modal-title').textContent = `${emp.name||''} 출근 시간 고정 (${belt} · ${hours}h 상주) — 저장 시 로테이션 해제`;
-  document.getElementById('m-start').value = curSlot;
+  const curStart = sd.shift_slots && sd.shift_slots[0] || sd.shift_start || DEFAULT_START;
+  const curEnd   = (sd.shift_ends && Object.values(sd.shift_ends)[0]) || addHours(curStart, hours);
+  const isFixed  = sd.shift_slots && sd.shift_slots.length === 1 && sd.shift_starts && Object.keys(sd.shift_starts).length > 0;
+  document.getElementById('modal-title').textContent = `${emp.name||''} 출퇴근 시간 설정 (${belt} · ${hours}h 상주)${isFixed ? ' — 수동 고정 중' : ''}`;
+  document.getElementById('m-start').innerHTML = buildHalfHourOpts(curStart);
+  document.getElementById('m-end').innerHTML   = buildHalfHourOpts(curEnd);
   updatePreview();
   document.getElementById('modal').classList.add('open');
 }
 function updatePreview() {
-  if (!editKey) return;
-  const sd  = schData[editKey] || {};
-  const emp = employees.find(e => e.branch+'||'+e.name === editKey) || {};
-  const belt  = sd.belt || emp.belt || '화이트';
-  const wt    = parseWorkType(sd.work_type || emp.work_type || '');
-  const hours = sd.shift_hours || wt.hours + 1 || (BELT_HOURS[belt]||8) + 1;
-  const start = document.getElementById('m-start').value;
-  document.getElementById('m-preview').textContent = `퇴근: ${start} + ${hours}h → ${addHours(start, hours)}`;
+  const startEl = document.getElementById('m-start');
+  const endEl   = document.getElementById('m-end');
+  if (!startEl || !endEl) return;
+  const start = startEl.value, end = endEl.value;
+  if (!start || !end) return;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  const diffMin = (eh*60+em) - (sh*60+sm);
+  document.getElementById('m-preview').textContent = diffMin > 0
+    ? `상주: ${(diffMin/60).toFixed(1).replace('.0','')}h (${start} → ${end}) — 저장 시 로테이션 해제`
+    : '⚠ 퇴근 시간은 출근 시간보다 뒤여야 합니다';
 }
 function closeModal() { document.getElementById('modal').classList.remove('open'); editKey=null; }
 function saveModal() {
   if (!editKey) return;
   if (isBranchLocked()) { closeModal(); alert('지나간 달의 근무표는 마스터 계정만 수정할 수 있습니다.'); return; }
   const start = document.getElementById('m-start').value;
+  const end   = document.getElementById('m-end').value;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  if ((eh*60+em) <= (sh*60+sm)) { alert('퇴근 시간은 출근 시간보다 뒤여야 합니다.'); return; }
   if (!schData[editKey]) {
     const emp = employees.find(e=>e.branch+'||'+e.name===editKey);
     schData[editKey] = mkEntry(emp||{name:'',branch:'',belt:'화이트',hire_date:''});
   }
-  // 고정 시간 설정: 전 날짜에 동일 적용, 로테이션 해제
   const totalDays = new Date(curY, curM, 0).getDate();
-  const fixedStarts = {};
-  for (let d = 1; d <= totalDays; d++) fixedStarts[String(d)] = start;
+  const fixedStarts = {}, fixedEnds = {};
+  for (let d = 1; d <= totalDays; d++) { fixedStarts[String(d)] = start; fixedEnds[String(d)] = end; }
   schData[editKey].shift_starts = fixedStarts;
+  schData[editKey].shift_ends   = fixedEnds;
   schData[editKey].shift_slots  = [start];
+  closeModal();
+  buildTable();
+  scheduleAutoSave();
+}
+function resetRotation() {
+  if (!editKey) return;
+  if (isBranchLocked()) { closeModal(); alert('지나간 달의 근무표는 마스터 계정만 수정할 수 있습니다.'); return; }
+  if (!schData[editKey]) return;
+  schData[editKey].shift_starts = {};
+  schData[editKey].shift_ends   = {};
+  schData[editKey].shift_slots  = getSlots(schData[editKey].shift_hours || 9);
   closeModal();
   buildTable();
   scheduleAutoSave();
