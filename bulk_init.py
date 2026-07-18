@@ -72,6 +72,8 @@ def parse_work_type(s):
             'hours': int(hm.group(1)) if hm else 8}
 
 def get_slots(store_hours):
+    if store_hours == 11.5:
+        return ['09:30']  # 10시간 근무형태: 09:30~21:00 (11h30m 상주) — JS getSlots와 동일
     r = [f"{str(h).zfill(2)}:00" for h in range(10, 21 - store_hours + 1)]
     return r if r else ['10:00']
 
@@ -198,7 +200,7 @@ def build_month_schedule(employees, y, m, prev_overflow_off=None):
 
     for emp in employees:
         wt = parse_work_type(emp.get('work_type',''))
-        store_hours  = wt['hours'] + 1
+        store_hours  = 11.5 if wt['hours'] == 10 else wt['hours'] + 1  # 10시간 근무 → 11.5h(09:30~21:00), 그 외 +1 휴게 — JS와 동일
         days_per_week = wt['days']
 
         start_day = 1
