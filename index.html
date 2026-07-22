@@ -2462,8 +2462,10 @@ async function buildBeautyzzangTable(branch, schOffMap) {
 
   // 병합 지점(예: "02. 강남사옥점 03. 강남구청점")은 구성 키별로 개별 fetch 후 병합
   const keys = branch.match(/\d{2}\.[^0-9]+/g)?.map(s => s.trim()) || [branch];
+  // 지점키 정규화는 앱 공통 규칙(fbBranchKey: . # $ [ ] / → _)을 그대로 사용 —
+  // 봇 writer(bz_sync/fb.py fb_key)도 동일 규칙이라 read/write 키가 맞물린다.
   const fetched = await Promise.all(keys.map(async k => {
-    try { return await (await fetch(`${FB_BASE}/beautyzzang/${ym}/${encodeURIComponent(k)}.json`)).json(); }
+    try { return await (await fetch(`${FB_BASE}/beautyzzang/${ym}/${encodeURIComponent(fbBranchKey(k))}.json`)).json(); }
     catch (e) { return null; }
   }));
 
