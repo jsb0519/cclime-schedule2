@@ -1,8 +1,8 @@
 from bz_sync.fb import build_payload, write_branch
 
-def test_build_payload_passthrough_dates():
-    p = build_payload({"김효은": ["2026-07-01", "2026-07-06"]}, "2026-07-22T03:00:00+09:00")
-    assert p["김효은"] == ["2026-07-01", "2026-07-06"]
+def test_build_payload_nested_and_synced_at():
+    p = build_payload({"김효은": {"off": ["2026-07-01"], "half": ["2026-07-22"]}}, "2026-07-22T03:00:00+09:00")
+    assert p["김효은"] == {"off": ["2026-07-01"], "half": ["2026-07-22"]}
     assert p["_syncedAt"] == "2026-07-22T03:00:00+09:00"
 
 def test_write_branch_url_and_body():

@@ -8,8 +8,9 @@ import requests
 _FB_KEY_BAD = re.compile(r"[.#$\[\]/]")
 
 
-def build_payload(off_by_name: dict[str, list[str]], synced_at: str) -> dict:
-    payload: dict = dict(off_by_name)
+def build_payload(bans_by_name: dict[str, dict], synced_at: str) -> dict:
+    """{name: {"off":[...], "half":[...]}} + _syncedAt 를 Firebase 노드 페이로드로."""
+    payload: dict = dict(bans_by_name)
     payload["_syncedAt"] = synced_at
     return payload
 
