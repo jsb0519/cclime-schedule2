@@ -1,0 +1,19 @@
+{
+  "firebase_base": "https://cclime-schedule-cb047-default-rtdb.asia-southeast1.firebasedatabase.app",
+  "credentials_path": "bz_sync/credentials.json",
+  "branch_stores_path": "bz_sync/branch_stores.json",
+  "alert": { "type": "none" },
+  "system_accounts": ["대기","대기2","당일취소","전일취소","업무","지원","네이버(신규)","네이버(기존)","결제변경","소멸","매장","환불","워크인","유료","무료"],
+  "name_map": {
+    "김보경M": "김보경",
+    "문다희M": "문다희",
+    "임수아M": "임수아",
+    "전유정M": "전유정",
+    "정하윤M": "정하윤",
+    "최지원M": "최지원",
+    "민영경M": "민영경",
+    "김나영": "김나영a",
+    "김채은": "김채은a",
+    "이가은": "이가은a"
+  }
+}
