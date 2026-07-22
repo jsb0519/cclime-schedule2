@@ -2508,24 +2508,28 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   let mism = 0, body = '';
   for (const name of Object.keys(data)) {
     if (name === '_syncedAt') continue;
-    const bzOff = new Set(data[name]);
-    const schOff = schOffMap[name] || null;   // 근무표에 없으면 미매칭
-    body += `<tr><td>${name}${schOff ? '' : ' <span style="color:#999">(미매칭)</span>'}</td>`;
+    const bzOff = data[name].off, bzHalf = data[name].half;   // Sets
+    const matched = schNames.has(name);
+    const schRec = schOffMap[name] || null;                    // {full:Set, half:Set} | null
+    body += `<tr><td>${name}${matched ? '' : ' <span style="color:#999">(미매칭)</span>'}</td>`;
     for (let d = 1; d <= days; d++) {
       const key = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const inBz = bzOff.has(key), inSch = schOff ? schOff.has(key) : null;
-      let cls = '', mark = inBz ? '휴' : '';
-      if (schOff) {
-        if (inBz && !inSch) { cls = 'bz-mismatch-red'; mism++; }
-        else if (!inBz && inSch) { cls = 'bz-mismatch-orange'; mism++; mark = '·'; }
-        else if (inBz && inSch) { cls = 'bz-match'; }
+      const bzLv = bzOff.has(key) ? 2 : (bzHalf.has(key) ? 1 : 0);
+      let cls = '', mark = bzLv === 2 ? '휴' : (bzLv === 1 ? '반' : '');
+      if (matched) {
+        const schLv = schRec ? (schRec.full.has(key) ? 2 : (schRec.half.has(key) ? 1 : 0)) : 0;
+        if (bzLv < schLv) { cls = 'bz-mismatch-orange'; mism++; if (!mark) mark = '·'; }
+        else if (bzLv > schLv) { cls = 'bz-mismatch-red'; mism++; }
+        else if (bzLv > 0) { cls = 'bz-match'; }
       }
       body += `<td class="${cls}">${mark}</td>`;
     }
     body += '</tr>';
   }
   document.getElementById('bz-body').innerHTML = body;
-  summary.innerHTML = `뷰티짱 대조: <b style="color:${mism?'#c00':'#080'}">${mism}건 불일치</b> · 마지막 동기화 ${data._syncedAt || '?'}`;
+  summary.innerHTML = `뷰티짱 대조: <b style="color:${mism?'#c00':'#080'}">${mism}건 불일치</b>`
+    + ` · <span style="font-size:11px;color:#888">휴=종일·반=부분 · 🟠근무표 오프 미반영 · 🔴뷰티짱 과다차단</span>`
+    + ` · 마지막 동기화 ${data._syncedAt || '?'}`;
 }
 
 function buildTable() {
