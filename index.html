@@ -85,6 +85,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .d-pmhalf{background:#E3F2FD;color:#1565C0;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
 .d-comp{background:#F3E5F5;color:#6A1B9A;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
 .d-edu{background:#E0F2F1;color:#00695C;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
+.d-leave{background:#ECEFF1;color:#455A64;font-size:9px;font-weight:700;padding:2px 1px;border-radius:2px;display:block;cursor:pointer}
 .d-sun td{background:#FFF5F5 !important}
 .d-sat td{background:#F0F8FF !important}
 .th-sun{color:#FF7043 !important}
@@ -144,6 +145,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .dm-type-btn.active[data-type="오후반차"]{background:#E3F2FD;color:#1565C0;border-color:#1565C0}
 .dm-type-btn.active[data-type="대휴"]{background:#F3E5F5;color:#6A1B9A;border-color:#6A1B9A}
 .dm-type-btn.active[data-type="교육"]{background:#E0F2F1;color:#00695C;border-color:#00695C}
+.dm-type-btn.active[data-type="휴직"]{background:#ECEFF1;color:#455A64;border-color:#455A64}
 .dm-time-box{background:#F8F9FF;border-radius:10px;padding:12px 16px;margin-bottom:12px}
 /* ─ Excel Modal ─ */
 .xl-row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
@@ -402,6 +404,14 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
       <button class="dm-type-btn" data-type="오후반차" onclick="selectDayType('오후반차')">🌆 오후반차</button>
       <button class="dm-type-btn" data-type="대휴"    onclick="selectDayType('대휴')">🔄 대휴</button>
       <button class="dm-type-btn" data-type="교육"    onclick="selectDayType('교육')">📚 교육</button>
+      <button class="dm-type-btn" data-type="휴직"    onclick="selectDayType('휴직')">🏠 휴직</button>
+    </div>
+    <div id="dm-leave-month-row" style="display:none;background:#ECEFF1;border-radius:10px;padding:12px 16px;margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#455A64;cursor:pointer">
+        <input type="checkbox" id="dm-leave-month" style="width:16px;height:16px;cursor:pointer">
+        이번 달 전체 휴직 처리
+      </label>
+      <div style="font-size:11px;color:#78909C;margin-top:6px">체크 후 저장하면 이 인원의 이번 달 모든 날이 휴직으로 변경됩니다.</div>
     </div>
     <div class="dm-time-box" id="dm-time-row" style="display:none">
       <div class="f-row" style="margin-bottom:8px">
@@ -629,7 +639,7 @@ const BRANCH_MERGE = {
 function mergedBranch(b) { return BRANCH_MERGE[b] || b; }
 const DEFAULT_START = '10:00';
 const DAY_TYPES_CYCLE = ['휴무','연차','오전반차','오후반차','대휴'];
-const TYPE_CLS = {'휴무':'d-off','연차':'d-annual','오전반차':'d-amhalf','오후반차':'d-pmhalf','대휴':'d-comp','교육':'d-edu'};
+const TYPE_CLS = {'휴무':'d-off','연차':'d-annual','오전반차':'d-amhalf','오후반차':'d-pmhalf','대휴':'d-comp','교육':'d-edu','휴직':'d-leave'};
 const MIN_YEAR = 2026, MIN_MONTH = 7; // 이동 가능 최소 월 (2026년 7월)
 
 function getMaxMonth() {
@@ -2586,6 +2596,7 @@ function openDayModal(key, day) {
     `${curM}월 ${day}일 (${KD[dow]}) · ${emp.name || ''}`;
   const dtype = (sd.day_types && sd.day_types[String(day)]) ||
                 ((sd.off_days||[]).includes(day) ? '휴무' : '근무');
+  document.getElementById('dm-leave-month').checked = false;
   selectDayType(dtype);
   document.getElementById('day-modal').classList.add('open');
 }
@@ -2594,6 +2605,13 @@ function selectDayType(type) {
   document.querySelectorAll('.dm-type-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.type === type));
   const timeRow = document.getElementById('dm-time-row');
+  const leaveMonthRow = document.getElementById('dm-leave-month-row');
+  if (type === '휴직') {
+    leaveMonthRow.style.display = 'block';
+  } else {
+    leaveMonthRow.style.display = 'none';
+    document.getElementById('dm-leave-month').checked = false;
+  }
   if (type === '근무') {
     timeRow.style.display = 'block';
     const sd = schData[dmKey] || {};
@@ -2621,6 +2639,25 @@ function saveDayModal() {
   if (!sd.off_days)     sd.off_days     = [];
   if (!sd.shift_starts) sd.shift_starts = {};
   if (!sd.shift_ends)   sd.shift_ends   = {};
+
+  // 이번 달 전체 휴직 처리: 해당 인원의 그달 모든 날을 휴직으로 변경
+  if (dmType === '휴직' && document.getElementById('dm-leave-month').checked) {
+    const daysInMonth = new Date(curY, curM, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const prev = sd.day_types[String(d)] || (sd.off_days.includes(d) ? '휴무' : '근무');
+      sd.day_types[String(d)] = '휴직';
+      if (!sd.off_days.includes(d)) sd.off_days.push(d);
+      // 연차·반차였던 날은 사용 로그에서 정리
+      if (leaveDayValue(prev) > 0) {
+        const dateStr = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        updateLeaveUsage(dmKey, curY, dateStr, prev, '휴직');
+      }
+    }
+    closeDayModal();
+    buildTable();
+    scheduleAutoSave();
+    return;
+  }
 
   // 연차 추적: 이전 타입 기록
   const oldType = sd.day_types[String(dmDay)] || ((sd.off_days||[]).includes(dmDay) ? '휴무' : '근무');
@@ -3187,6 +3224,7 @@ async function _execDownloadExcel(dlY, dlM, branchFilter, dlSchData, wb, empList
         '오후반차': {type:'pattern',pattern:'solid',fgColor:{argb:'FFE3F2FD'}},
         '대휴':    {type:'pattern',pattern:'solid',fgColor:{argb:'FFF3E5F5'}},
         '교육':    {type:'pattern',pattern:'solid',fgColor:{argb:'FFE0F2F1'}},
+        '휴직':    {type:'pattern',pattern:'solid',fgColor:{argb:'FFECEFF1'}},
       };
       if (beforeHire || afterExit) {
         rowData.push('—');
