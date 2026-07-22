@@ -2459,9 +2459,37 @@ async function buildBeautyzzangTable(branch, schOffMap) {
   const wrap = document.getElementById('bz-wrap');
   if (!branch) { wrap.style.display = 'none'; return; }
   const ym = curY + '_' + String(curM).padStart(2, '0');
+
+  // 병합 지점(예: "02. 강남사옥점 03. 강남구청점")은 구성 키별로 개별 fetch 후 병합
+  const keys = branch.match(/\d{2}\.[^0-9]+/g)?.map(s => s.trim()) || [branch];
+  const fetched = await Promise.all(keys.map(async k => {
+    try { return await (await fetch(`${FB_BASE}/beautyzzang/${ym}/${encodeURIComponent(k)}.json`)).json(); }
+    catch (e) { return null; }
+  }));
+
+  // 유효한 노드만 남기고 병합
+  const validNodes = fetched.filter(n => n !== null && typeof n === 'object');
   let data = null;
-  try { data = await (await fetch(`${FB_BASE}/beautyzzang/${ym}/${encodeURIComponent(branch)}.json`)).json(); }
-  catch (e) { data = null; }
+  if (validNodes.length > 0) {
+    data = {};
+    for (const node of validNodes) {
+      for (const [k, v] of Object.entries(node)) {
+        if (k === '_syncedAt') continue;
+        if (!data[k]) {
+          data[k] = [...v];
+        } else {
+          // 날짜 배열 합집합(dedupe)
+          const existing = new Set(data[k]);
+          for (const d of v) existing.add(d);
+          data[k] = [...existing];
+        }
+      }
+    }
+    // _syncedAt: 구성 노드 중 최신값
+    const syncTimes = validNodes.map(n => n._syncedAt).filter(Boolean);
+    data._syncedAt = syncTimes.length ? syncTimes.reduce((a, b) => a > b ? a : b) : undefined;
+  }
+
   wrap.style.display = '';
   const summary = document.getElementById('bz-summary');
   if (!data) {
