@@ -22,3 +22,16 @@ Task 2: complete (commit 5d48fa0, review clean)
 Task 3: complete (commit d2f7738, review clean; Minor: names.py oid fallback uses `or` not `is None` — harmless, revisit at final)
 Task 4: complete (commit 77d80dc, review clean; Minor: test sentinel could be stricter — final)
 Task 5: complete (commit 904e01d, review clean; live smoke deferred to Mac mini)
+Task 6: complete (commits 8a73c76..220ac8c, re-review clean; live smoke deferred to Mac mini)
+Task 7: complete (commit 4f867c5, review clean; critical comparison-correctness PASS; 2 Minor forward-fragility notes)
+
+== ALL TASKS COMPLETE — final whole-branch review next ==
+Minor findings roll-up for final triage:
+- names.py: oid fallback uses `or` not `is None` (harmless)
+- fb.py test: namespace-escape sentinel could be stricter
+- scrape.py: eval_on_selector vs click; import calendar inside fn (both match brief)
+- index.html: _syncedAt skip is string-keyed (forward fragility)
+
+== FINAL REVIEW COMPLETE ==
+Final review (opus): 2 Important fixed in 1f2477b — (1) 강남 병합지점 fetch 병합, (2) 예시 자격증명 placeholder화. Minors deferred (documented). 12/12 tests pass. index.html HTTP200.
+REMAINING (Mac mini): config.json 생성, credentials.json 생성, scrape/sync 라이브 스모크, launchd <HOME> 치환·설치, 이름매핑 실측 보정.
