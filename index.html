@@ -423,6 +423,13 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
         <select id="dm-end" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;min-width:100px"></select>
       </div>
     </div>
+    <div id="dm-work-month-row" style="display:none;background:#E8F5E9;border-radius:10px;padding:12px 16px;margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#1B5E20;cursor:pointer">
+        <input type="checkbox" id="dm-work-month" style="width:16px;height:16px;cursor:pointer">
+        이번 달 전체 근무 처리
+      </label>
+      <div style="font-size:11px;color:#66BB6A;margin-top:6px">체크 후 저장하면 이 인원의 이번 달 모든 날이 근무로 변경됩니다(휴무·연차·휴직 등 해제).</div>
+    </div>
     <div class="modal-btns">
       <button class="btn-cancel" onclick="closeDayModal()">취소</button>
       <button class="btn-ok" onclick="saveDayModal()">저장</button>
@@ -2597,6 +2604,7 @@ function openDayModal(key, day) {
   const dtype = (sd.day_types && sd.day_types[String(day)]) ||
                 ((sd.off_days||[]).includes(day) ? '휴무' : '근무');
   document.getElementById('dm-leave-month').checked = false;
+  document.getElementById('dm-work-month').checked = false;
   selectDayType(dtype);
   document.getElementById('day-modal').classList.add('open');
 }
@@ -2606,14 +2614,20 @@ function selectDayType(type) {
     b.classList.toggle('active', b.dataset.type === type));
   const timeRow = document.getElementById('dm-time-row');
   const leaveMonthRow = document.getElementById('dm-leave-month-row');
+  const workMonthRow = document.getElementById('dm-work-month-row');
   if (type === '휴직') {
     leaveMonthRow.style.display = 'block';
   } else {
     leaveMonthRow.style.display = 'none';
     document.getElementById('dm-leave-month').checked = false;
   }
+  if (type !== '근무') {
+    workMonthRow.style.display = 'none';
+    document.getElementById('dm-work-month').checked = false;
+  }
   if (type === '근무') {
     timeRow.style.display = 'block';
+    workMonthRow.style.display = 'block';
     const sd = schData[dmKey] || {};
     const slots = (sd.shift_slots && sd.shift_slots.length) ? sd.shift_slots : getSlots(sd.shift_hours || 9);
     const ROT_INT = sd.rotation_interval || 2;
@@ -2651,6 +2665,26 @@ function saveDayModal() {
       if (leaveDayValue(prev) > 0) {
         const dateStr = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         updateLeaveUsage(dmKey, curY, dateStr, prev, '휴직');
+      }
+    }
+    closeDayModal();
+    buildTable();
+    scheduleAutoSave();
+    return;
+  }
+
+  // 이번 달 전체 근무 처리: 해당 인원의 그달 모든 날을 근무로 변경(휴무·연차·휴직 등 해제)
+  if (dmType === '근무' && document.getElementById('dm-work-month').checked) {
+    const daysInMonth = new Date(curY, curM, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const prev = sd.day_types[String(d)] || (sd.off_days.includes(d) ? '휴무' : '근무');
+      delete sd.day_types[String(d)];
+      const oi = sd.off_days.indexOf(d);
+      if (oi >= 0) sd.off_days.splice(oi, 1);
+      // 연차·반차였던 날은 사용 로그에서 정리(각 날짜는 기본 로테이션 근무시간으로 복귀)
+      if (leaveDayValue(prev) > 0) {
+        const dateStr = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        updateLeaveUsage(dmKey, curY, dateStr, prev, '근무');
       }
     }
     closeDayModal();
