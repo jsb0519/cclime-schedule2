@@ -2537,7 +2537,8 @@ function buildTable() {
   if (fbStatus) fbStatus.style.display = isReadOnly ? 'none' : '';
   if (editHint) editHint.style.display = isReadOnly ? 'none' : '';
   updateNavBtns();
-  const _schOffMap = {};
+  const _schOffMap = {};        // {name: {full:Set, half:Set}} — 근무표 오프(레벨 분리)
+  const _schNames  = new Set(); // 근무표에 존재하는 모든 직원(오프 유무 무관) — 미매칭 판정용
 
   // 해당 월 데이터 없으면 안내 메시지
   const hasData = branch
@@ -2603,6 +2604,7 @@ function buildTable() {
   let body = '';
   let lastBranch = null;
   emps.forEach(emp => {
+    _schNames.add(emp.name);
     const key = mergedBranch(emp.branch) + '||' + emp.name;
     const sd = schData[key] || {};
     const belt  = sd.belt || emp.belt || '화이트';
@@ -2658,9 +2660,10 @@ function buildTable() {
       } else {
         const dtype = (sd.day_types && sd.day_types[String(d)]) || (offs.includes(d) ? '휴무' : null);
         if (dtype) {
-          if (dtype === '휴무' || dtype === '휴직') {
-            (_schOffMap[emp.name] ||= new Set()).add(`${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
-          }
+          const dstr = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const rec = (_schOffMap[emp.name] ||= { full: new Set(), half: new Set() });
+          if (dtype === '오전반차' || dtype === '오후반차') rec.half.add(dstr);
+          else rec.full.add(dstr);   // 휴무·연차·대휴·교육·휴직 등 종일 비근무 = 레벨2
           offCnt++;
           const tcls = TYPE_CLS[dtype] || 'd-off';
           cells += `<td class="${holCls}"${isReadOnly ? '' : ` onclick="openDayModal('${key}',${d})"`}><span class="${tcls}">${dtype}</span></td>`;
@@ -2687,7 +2690,7 @@ function buildTable() {
     </tr>`;
   });
   document.getElementById('sch-body').innerHTML = body;
-  buildBeautyzzangTable(branch, _schOffMap);
+  buildBeautyzzangTable(branch, _schOffMap, _schNames);
 
 }
 
