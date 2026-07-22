@@ -25,7 +25,8 @@ def run(config: dict, creds: dict, now_iso: str) -> dict:
     from playwright.sync_api import sync_playwright
 
     base = config["firebase_base"]
-    stores = json.load(open(config["branch_stores_path"], encoding="utf-8"))
+    with open(config["branch_stores_path"], encoding="utf-8") as f:
+        stores = json.load(f)
     results: dict[str, str] = {}
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -34,17 +35,24 @@ def run(config: dict, creds: dict, now_iso: str) -> dict:
         for branch, oid in stores.items():
             if branch.startswith("_"):
                 continue
-            try:
-                for (y, m) in _months(now_iso):
+            branch_failed = False
+            failed_month_error = None
+            for (y, m) in _months(now_iso):
+                try:
                     ban, rv = fetch_branch(page, oid, y, m)
                     off = resolve(parse_offdays(ban), parse_staff_names(rv),
                                   config["system_accounts"], config["name_map"])
                     status = write_branch(base, y, m, branch, build_payload(off, now_iso))
                     if status >= 400:
                         raise RuntimeError(f"firebase {status}")
+                except Exception as e:
+                    branch_failed = True
+                    if failed_month_error is None:
+                        failed_month_error = e
+            if branch_failed:
+                results[branch] = f"fail:{type(failed_month_error).__name__}"
+            else:
                 results[branch] = "ok"
-            except Exception as e:
-                results[branch] = f"fail:{type(e).__name__}"
         browser.close()
     return results
 
@@ -59,8 +67,10 @@ def alert(config: dict, message: str) -> None:
 
 if __name__ == "__main__":
     import datetime
-    cfg = json.load(open(sys.argv[1] if len(sys.argv) > 1 else "bz_sync/config.json", encoding="utf-8"))
-    creds = json.load(open(cfg["credentials_path"], encoding="utf-8"))
+    with open(sys.argv[1] if len(sys.argv) > 1 else "bz_sync/config.json", encoding="utf-8") as f:
+        cfg = json.load(f)
+    with open(cfg["credentials_path"], encoding="utf-8") as f:
+        creds = json.load(f)
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).isoformat(timespec="seconds")
     res = run(cfg, creds, now)
     msg = summarize(res)

@@ -20,3 +20,5 @@
 
 Task 2: complete (commit 5d48fa0, review clean)
 Task 3: complete (commit d2f7738, review clean; Minor: names.py oid fallback uses `or` not `is None` — harmless, revisit at final)
+Task 4: complete (commit 77d80dc, review clean; Minor: test sentinel could be stricter — final)
+Task 5: complete (commit 904e01d, review clean; live smoke deferred to Mac mini)
