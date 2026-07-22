@@ -2454,7 +2454,7 @@ function mkEntry(emp) {
            shift_hours:storeHours, shift_slots:slots, shift_starts:{}, off_days:[], day_types:{} };
 }
 
-async function buildBeautyzzangTable(branch, schOffMap) {
+async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   // schOffMap: {직원명: Set('YYYY-MM-DD')} — 근무표 휴무(비교 기준)
   const wrap = document.getElementById('bz-wrap');
   if (!branch) { wrap.style.display = 'none'; return; }
@@ -2477,13 +2477,14 @@ async function buildBeautyzzangTable(branch, schOffMap) {
     for (const node of validNodes) {
       for (const [k, v] of Object.entries(node)) {
         if (k === '_syncedAt') continue;
+        // 신형 {off,half} / 구형 flat 배열(=전부 off) 모두 방어 해석
+        const rec = Array.isArray(v) ? { off: v, half: [] }
+                                     : { off: (v && v.off) || [], half: (v && v.half) || [] };
         if (!data[k]) {
-          data[k] = [...v];
+          data[k] = { off: new Set(rec.off), half: new Set(rec.half) };
         } else {
-          // 날짜 배열 합집합(dedupe)
-          const existing = new Set(data[k]);
-          for (const d of v) existing.add(d);
-          data[k] = [...existing];
+          rec.off.forEach(d => data[k].off.add(d));
+          rec.half.forEach(d => data[k].half.add(d));
         }
       }
     }
