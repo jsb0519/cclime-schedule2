@@ -2455,7 +2455,7 @@ function mkEntry(emp) {
 }
 
 async function buildBeautyzzangTable(branch, schOffMap, schNames) {
-  // schOffMap: {직원명: Set('YYYY-MM-DD')} — 근무표 휴무(비교 기준)
+  // schOffMap: {직원명: {full:Set('YYYY-MM-DD'), half:Set}} — 근무표 오프(레벨 분리, 비교 기준)
   const wrap = document.getElementById('bz-wrap');
   if (!branch) { wrap.style.display = 'none'; return; }
   const ym = curY + '_' + String(curM).padStart(2, '0');
@@ -2502,7 +2502,7 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
     return;
   }
   const days = new Date(curY, curM, 0).getDate();
-  let hd = '<tr><th>직원(뷰티짱 휴무)</th>';
+  let hd = '<tr><th>직원(뷰티짱 휴무·반차)</th>';
   for (let d = 1; d <= days; d++) hd += `<th>${d}</th>`;
   document.getElementById('bz-head').innerHTML = hd + '</tr>';
   let mism = 0, body = '';

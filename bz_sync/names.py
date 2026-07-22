@@ -5,7 +5,7 @@ def resolve_bans(bans_by_oid: dict[int, dict[str, list[str]]], oid_to_name: dict
                  system_accounts: list[str], name_map: dict[str, str]) -> dict[str, dict[str, list[str]]]:
     """oidStaff→근무표 이름 해석 + 시스템계정/제외 필터. off·half 중첩 구조 보존, 동명이인 합집합."""
     sys_set = set(system_accounts)
-    acc: dict[str, dict[str, set]] = {}
+    acc: dict[str, dict[str, set[str]]] = {}
     for oid, rec in bans_by_oid.items():
         name = oid_to_name.get(oid) or f"oid:{oid}"
         if name in sys_set:
