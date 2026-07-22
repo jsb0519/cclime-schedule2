@@ -1,18 +1,24 @@
 """뷰티짱 StatusBoardV2 JSON → 집계. 네트워크 의존 없음."""
 
 
-def parse_offdays(ban: list[dict]) -> dict[int, list[str]]:
-    """BanList JSON → {oidStaff: [YYYY-MM-DD]}. 종일 휴무(n1DayHoliday==1)만."""
-    acc: dict[int, set[str]] = {}
+def parse_bans(ban: list[dict]) -> dict[int, dict[str, list[str]]]:
+    """BanList JSON → {oidStaff: {"off":[YYYY-MM-DD], "half":[YYYY-MM-DD]}}.
+    n1DayHoliday==1 → 종일휴무(off), ==0 → 시간대 부분금지(half). 같은 날 중복은 dedupe."""
+    off: dict[int, set[str]] = {}
+    half: dict[int, set[str]] = {}
     for row in ban:
-        if row.get("n1DayHoliday") != 1:
-            continue
         oid = row.get("oidStaff")
         date = row.get("strDate")
         if oid is None or not date:
             continue
-        acc.setdefault(int(oid), set()).add(date[:10])
-    return {oid: sorted(dates) for oid, dates in acc.items()}
+        flag = row.get("n1DayHoliday")
+        if flag == 1:
+            off.setdefault(int(oid), set()).add(date[:10])
+        elif flag == 0:
+            half.setdefault(int(oid), set()).add(date[:10])
+    oids = set(off) | set(half)
+    return {oid: {"off": sorted(off.get(oid, set())),
+                  "half": sorted(half.get(oid, set()))} for oid in oids}
 
 
 def parse_staff_names(rv: list[dict]) -> dict[int, str]:
