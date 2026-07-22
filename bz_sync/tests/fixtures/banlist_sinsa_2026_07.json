@@ -1,0 +1,11 @@
+[
+  {"oidStaff":810013,"strDate":"2026-07-01","n1DayHoliday":1,"n1BanGubun":"rv_staffconfig_holiday","strBanReason":"담당자 휴무","strTimeS":"10:00","strTimeE":"21:00"},
+  {"oidStaff":810013,"strDate":"2026-07-02","n1DayHoliday":1,"n1BanGubun":"rv_staffconfig_holiday","strBanReason":"담당자 휴무","strTimeS":"10:00","strTimeE":"21:00"},
+  {"oidStaff":847079,"strDate":"2026-07-01","n1DayHoliday":1,"n1BanGubun":"rv_ban","strBanReason":"휴무","strTimeS":"10:00","strTimeE":"21:00"},
+  {"oidStaff":847079,"strDate":"2026-07-06","n1DayHoliday":1,"n1BanGubun":"rv_ban","strBanReason":"휴무","strTimeS":"10:00","strTimeE":"21:00"},
+  {"oidStaff":857465,"strDate":"2026-07-04","n1DayHoliday":1,"n1BanGubun":"rv_ban","strBanReason":"휴무","strTimeS":"10:00","strTimeE":"21:00"},
+  {"oidStaff":857465,"strDate":"2026-07-05","n1DayHoliday":1,"n1BanGubun":"rv_ban","strBanReason":"휴무","strTimeS":"10:00","strTimeE":"21:00"},
+  {"oidStaff":866628,"strDate":"2026-07-04","n1DayHoliday":1,"n1BanGubun":"rv_ban","strBanReason":"병가","strTimeS":"10:00","strTimeE":"21:00"},
+  {"oidStaff":860807,"strDate":"2026-07-22","n1DayHoliday":0,"n1BanGubun":"rv_ban","strBanReason":"기타","strTimeS":"17:30","strTimeE":"21:00"},
+  {"oidStaff":869936,"strDate":"2026-07-11","n1DayHoliday":1,"n1BanGubun":"rv_ban","strBanReason":"휴무","strTimeS":"10:00","strTimeE":"21:00"}
+]

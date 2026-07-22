@@ -1,0 +1,14 @@
+[
+  {"oidStaff":564937,"strStaffName":"대기","strDate":"2026-07-01","oidReservation":1},
+  {"oidStaff":786428,"strStaffName":"당일취소","strDate":"2026-07-01","oidReservation":2},
+  {"oidStaff":814103,"strStaffName":"전일취소","strDate":"2026-07-01","oidReservation":3},
+  {"oidStaff":847079,"strStaffName":"김효은","strDate":"2026-07-02","oidReservation":4},
+  {"oidStaff":857465,"strStaffName":"박세영","strDate":"2026-07-02","oidReservation":5},
+  {"oidStaff":858195,"strStaffName":"조향화","strDate":"2026-07-03","oidReservation":6},
+  {"oidStaff":860071,"strStaffName":"전혜원","strDate":"2026-07-03","oidReservation":7},
+  {"oidStaff":866628,"strStaffName":"기영원","strDate":"2026-07-04","oidReservation":8},
+  {"oidStaff":869936,"strStaffName":"강은채","strDate":"2026-07-05","oidReservation":9},
+  {"oidStaff":870040,"strStaffName":"박예진","strDate":"2026-07-06","oidReservation":10},
+  {"oidStaff":860786,"strStaffName":"업무","strDate":"2026-07-06","oidReservation":11},
+  {"oidStaff":860807,"strStaffName":"지원","strDate":"2026-07-06","oidReservation":12}
+]
