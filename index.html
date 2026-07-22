@@ -187,6 +187,10 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .leave-rem-neg{color:#DC2626;font-weight:800}
 .leave-rem-ok{color:#059669;font-weight:800}
 .lv-summary{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+#bz-table th, #bz-table td { border:1px solid #ddd; text-align:center; font-size:11px; padding:2px 4px; }
+.bz-match { background:#e8f5e9; }
+.bz-mismatch-red { background:#ffcdd2; font-weight:700; }
+.bz-mismatch-orange { background:#ffe0b2; font-weight:700; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
@@ -260,6 +264,10 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
       <thead id="sch-head"></thead>
       <tbody id="sch-body"></tbody>
     </table>
+    <div id="bz-wrap" style="margin-top:18px;display:none">
+      <div id="bz-summary" style="font-size:13px;margin:6px 0;color:#555"></div>
+      <table id="bz-table"><thead id="bz-head"></thead><tbody id="bz-body"></tbody></table>
+    </div>
   </div>
 </div>
 
@@ -2446,6 +2454,49 @@ function mkEntry(emp) {
            shift_hours:storeHours, shift_slots:slots, shift_starts:{}, off_days:[], day_types:{} };
 }
 
+async function buildBeautyzzangTable(branch, schOffMap) {
+  // schOffMap: {직원명: Set('YYYY-MM-DD')} — 근무표 휴무(비교 기준)
+  const wrap = document.getElementById('bz-wrap');
+  if (!branch) { wrap.style.display = 'none'; return; }
+  const ym = curY + '_' + String(curM).padStart(2, '0');
+  let data = null;
+  try { data = await (await fetch(`${FB_BASE}/beautyzzang/${ym}/${encodeURIComponent(branch)}.json`)).json(); }
+  catch (e) { data = null; }
+  wrap.style.display = '';
+  const summary = document.getElementById('bz-summary');
+  if (!data) {
+    summary.textContent = '⚠️ 뷰티짱 동기화 데이터 없음';
+    document.getElementById('bz-head').innerHTML = '';
+    document.getElementById('bz-body').innerHTML = '';
+    return;
+  }
+  const days = new Date(curY, curM, 0).getDate();
+  let hd = '<tr><th>직원(뷰티짱 휴무)</th>';
+  for (let d = 1; d <= days; d++) hd += `<th>${d}</th>`;
+  document.getElementById('bz-head').innerHTML = hd + '</tr>';
+  let mism = 0, body = '';
+  for (const name of Object.keys(data)) {
+    if (name === '_syncedAt') continue;
+    const bzOff = new Set(data[name]);
+    const schOff = schOffMap[name] || null;   // 근무표에 없으면 미매칭
+    body += `<tr><td>${name}${schOff ? '' : ' <span style="color:#999">(미매칭)</span>'}</td>`;
+    for (let d = 1; d <= days; d++) {
+      const key = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const inBz = bzOff.has(key), inSch = schOff ? schOff.has(key) : null;
+      let cls = '', mark = inBz ? '휴' : '';
+      if (schOff) {
+        if (inBz && !inSch) { cls = 'bz-mismatch-red'; mism++; }
+        else if (!inBz && inSch) { cls = 'bz-mismatch-orange'; mism++; mark = '·'; }
+        else if (inBz && inSch) { cls = 'bz-match'; }
+      }
+      body += `<td class="${cls}">${mark}</td>`;
+    }
+    body += '</tr>';
+  }
+  document.getElementById('bz-body').innerHTML = body;
+  summary.innerHTML = `뷰티짱 대조: <b style="color:${mism?'#c00':'#080'}">${mism}건 불일치</b> · 마지막 동기화 ${data._syncedAt || '?'}`;
+}
+
 function buildTable() {
   const branch = document.getElementById('branch-sel').value;
   const isReadOnly = !branch || _viewerMode || isBranchLocked();
@@ -2456,6 +2507,7 @@ function buildTable() {
   if (fbStatus) fbStatus.style.display = isReadOnly ? 'none' : '';
   if (editHint) editHint.style.display = isReadOnly ? 'none' : '';
   updateNavBtns();
+  const _schOffMap = {};
 
   // 해당 월 데이터 없으면 안내 메시지
   const hasData = branch
@@ -2576,6 +2628,9 @@ function buildTable() {
       } else {
         const dtype = (sd.day_types && sd.day_types[String(d)]) || (offs.includes(d) ? '휴무' : null);
         if (dtype) {
+          if (dtype === '휴무' || dtype === '휴직') {
+            (_schOffMap[emp.name] ||= new Set()).add(`${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+          }
           offCnt++;
           const tcls = TYPE_CLS[dtype] || 'd-off';
           cells += `<td class="${holCls}"${isReadOnly ? '' : ` onclick="openDayModal('${key}',${d})"`}><span class="${tcls}">${dtype}</span></td>`;
@@ -2602,6 +2657,7 @@ function buildTable() {
     </tr>`;
   });
   document.getElementById('sch-body').innerHTML = body;
+  buildBeautyzzangTable(branch, _schOffMap);
 
 }
 
