@@ -2518,15 +2518,16 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
     body += `<tr><td>${name}${matched ? '' : ' <span style="color:#999">(미매칭)</span>'}</td>`;
     for (let d = 1; d <= days; d++) {
       const key = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      // 반차(half=뷰티짱 부분금지)는 표시 전용 — 뷰티짱 부분금지는 반차가 아니라
-      // 매 근무일 붙는 일상 블록이라 신뢰할 반차 신호가 못 됨. 불일치 판정은 '종일 오프'만 비교.
+      // 얼추 비슷하면 매칭: 종일/반차 구분 없이 '둘 다 쉼'이면 일치, 한쪽만 쉼이면 불일치.
+      // (봇이 사유필터로 half=진짜 반차/부재만 남기므로 반차를 판정에 넣어도 노이즈 없음.)
       const bzFull = bzOff.has(key), bzPartial = !bzFull && bzHalf.has(key);
+      const bzAbsent = bzFull || bzPartial;
       let cls = '', mark = bzFull ? '휴' : (bzPartial ? '반' : '');
       if (matched) {
-        const schFull = schRec ? schRec.full.has(key) : false;   // 휴무·연차·대휴·교육·휴직
-        if (schFull && !bzFull) { cls = 'bz-mismatch-orange'; mism++; if (!mark) mark = '·'; }
-        else if (!schFull && bzFull) { cls = 'bz-mismatch-red'; mism++; }
-        else if (schFull && bzFull) { cls = 'bz-match'; }
+        const schAbsent = schRec ? (schRec.full.has(key) || schRec.half.has(key)) : false;  // 종일 or 반차
+        if (schAbsent && !bzAbsent) { cls = 'bz-mismatch-orange'; mism++; if (!mark) mark = '·'; }
+        else if (!schAbsent && bzAbsent) { cls = 'bz-mismatch-red'; mism++; }
+        else if (schAbsent && bzAbsent) { cls = 'bz-match'; }
       }
       body += `<td class="${cls}">${mark}</td>`;
     }
@@ -2534,7 +2535,7 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   }
   document.getElementById('bz-body').innerHTML = body;
   summary.innerHTML = `뷰티짱 대조: <b style="color:${mism?'#c00':'#080'}">${mism}건 불일치</b>`
-    + ` · <span style="font-size:11px;color:#888">휴=종일휴무 · 반=부분금지(참고, 대조제외) · 🟠근무표 오프인데 뷰티짱 미반영 · 🔴뷰티짱 종일차단인데 근무표 근무</span>`
+    + ` · <span style="font-size:11px;color:#888">휴=종일휴무 · 반=반차 · 🟠근무표는 쉼인데 뷰티짱 미반영 · 🔴뷰티짱은 쉼인데 근무표 근무 (종일·반차 구분없이 둘 다 쉼이면 일치)</span>`
     + ` · 마지막 동기화 ${data._syncedAt || '?'}`;
 }
 
