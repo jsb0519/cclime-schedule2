@@ -2454,16 +2454,6 @@ function mkEntry(emp) {
            shift_hours:storeHours, shift_slots:slots, shift_starts:{}, off_days:[], day_types:{} };
 }
 
-// 뷰티짱 사유 → 그리드 표시용 2글자 라벨. 부분금지는 봇이 이미 {휴무·휴가·연차·반차}로 걸러 옴.
-// 종일휴무는 사유 무관 전부 오므로, 온갖 라벨(담당자 휴무·기타·빈값·타지점·본사 등)을 정규화.
-const BZ_REASON_LABELS = { '휴무':'휴무','휴가':'휴가','연차':'연차','반차':'반차','교육':'교육','병가':'병가','타지점':'타점','본사':'본사' };
-function bzReasonLabel(reason, isFull) {
-  const r = (reason || '').trim();
-  if (BZ_REASON_LABELS[r]) return BZ_REASON_LABELS[r];
-  if (r.includes('휴무')) return '휴무';          // '담당자 휴무' 등
-  return isFull ? '휴무' : '반차';                // 기타·빈값·미지 사유 → 종일이면 휴무·부분이면 반차
-}
-
 async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   // schOffMap: {직원명: {full:Set('YYYY-MM-DD'), half:Set}} — 근무표 오프(레벨 분리, 비교 기준)
   const wrap = document.getElementById('bz-wrap');
@@ -2513,7 +2503,7 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
     return;
   }
   const days = new Date(curY, curM, 0).getDate();
-  let hd = '<tr><th>직원(뷰티짱 휴무·반차)</th>';
+  let hd = '<tr><th>직원(뷰티짱 휴무)</th>';
   for (let d = 1; d <= days; d++) hd += `<th>${d}</th>`;
   document.getElementById('bz-head').innerHTML = hd + '</tr>';
   let mism = 0, body = '';
@@ -2523,19 +2513,17 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   const orderedNames = [...[...schNames].filter(n => data[n]),
                         ...bzRealNames.filter(n => !schNames.has(n))];
   for (const name of orderedNames) {
-    const bzOff = data[name].off, bzHalf = data[name].half, bzReasons = data[name].reasons || {};
+    const bzOff = data[name].off;                              // 종일휴무 날짜 Set (부분금지는 안 읽음)
     const matched = schNames.has(name);
     const schRec = schOffMap[name] || null;                    // {full:Set, half:Set} | null
     body += `<tr><td>${name}${matched ? '' : ' <span style="color:#999">(미매칭)</span>'}</td>`;
     for (let d = 1; d <= days; d++) {
       const key = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      // 얼추 비슷하면 매칭: 종일/반차 구분 없이 '둘 다 쉼'이면 일치, 한쪽만 쉼이면 불일치.
-      const bzFull = bzOff.has(key), bzPartial = !bzFull && bzHalf.has(key);
-      const bzAbsent = bzFull || bzPartial;
-      // 마크 = 뷰티짱 사유 2글자 라벨(휴무/휴가/연차/반차/교육/병가 등). 없으면 종일→휴무·부분→반차.
-      let cls = '', mark = bzAbsent ? bzReasonLabel(bzReasons[key], bzFull) : '';
+      // 뷰티짱은 하루 통째 휴무만 읽어 전부 '휴무'로 표시. 근무표 '쉬는 날'과 매칭되면 일치.
+      const bzAbsent = bzOff.has(key);
+      let cls = '', mark = bzAbsent ? '휴무' : '';
       if (matched) {
-        const schAbsent = schRec ? (schRec.full.has(key) || schRec.half.has(key)) : false;  // 종일 or 반차
+        const schAbsent = schRec ? (schRec.full.has(key) || schRec.half.has(key)) : false;  // 근무 외 전부(휴무·연차·반차 등)
         if (schAbsent && !bzAbsent) { cls = 'bz-mismatch-orange'; mism++; if (!mark) mark = '·'; }
         else if (!schAbsent && bzAbsent) { cls = 'bz-mismatch-red'; mism++; }
         else if (schAbsent && bzAbsent) { cls = 'bz-match'; }
@@ -2546,7 +2534,7 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   }
   document.getElementById('bz-body').innerHTML = body;
   summary.innerHTML = `뷰티짱 대조: <b style="color:${mism?'#c00':'#080'}">${mism}건 불일치</b>`
-    + ` · <span style="font-size:11px;color:#888">칸=뷰티짱 사유(휴무·휴가·연차·반차·교육·병가) · 🟠근무표는 쉼인데 뷰티짱 미반영 · 🔴뷰티짱은 쉼인데 근무표 근무 (쉬는 날끼리 맞으면 일치)</span>`
+    + ` · <span style="font-size:11px;color:#888">휴무=뷰티짱 하루 휴무 · 🟠근무표는 쉼인데 뷰티짱 휴무 없음 · 🔴뷰티짱 휴무인데 근무표 근무 (쉬는 날끼리 맞으면 일치)</span>`
     + ` · 마지막 동기화 ${data._syncedAt || '?'}`;
 }
 
