@@ -2506,8 +2506,12 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   for (let d = 1; d <= days; d++) hd += `<th>${d}</th>`;
   document.getElementById('bz-head').innerHTML = hd + '</tr>';
   let mism = 0, body = '';
-  for (const name of Object.keys(data)) {
-    if (name === '_syncedAt') continue;
+  // 행 순서 = 근무표 순서(schNames 삽입순 = 근무표 그리드 정렬순: 지점번호→벨트). 근무표에 있는
+  // 이름 먼저, 그 뒤 뷰티짱에만 있는 실명(미매칭). oid:숫자(사람 아님·휴점/비활성 계정)는 그리드 제외.
+  const bzRealNames = Object.keys(data).filter(n => n !== '_syncedAt' && !n.startsWith('oid:'));
+  const orderedNames = [...[...schNames].filter(n => data[n]),
+                        ...bzRealNames.filter(n => !schNames.has(n))];
+  for (const name of orderedNames) {
     const bzOff = data[name].off, bzHalf = data[name].half;   // Sets
     const matched = schNames.has(name);
     const schRec = schOffMap[name] || null;                    // {full:Set, half:Set} | null

@@ -40,7 +40,7 @@ def run(config: dict, creds: dict, now_iso: str) -> dict:
             for (y, m) in _months(now_iso):
                 try:
                     ban, rv = fetch_branch(page, oid, y, m)
-                    bans = resolve_bans(parse_bans(ban), parse_staff_names(rv),
+                    bans = resolve_bans(parse_bans(ban, config["half_reasons"]), parse_staff_names(rv),
                                         config["system_accounts"], config["name_map"])
                     status = write_branch(base, y, m, branch, build_payload(bans, now_iso))
                     if status >= 400:
