@@ -187,7 +187,7 @@ body{font-family:"Pretendard","Noto Sans KR",-apple-system,sans-serif;background
 .leave-rem-neg{color:#DC2626;font-weight:800}
 .leave-rem-ok{color:#059669;font-weight:800}
 .lv-summary{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
-#bz-table th, #bz-table td { border:1px solid #ddd; text-align:center; font-size:11px; padding:2px 4px; }
+#bz-table th, #bz-table td { border:1px solid #ddd; text-align:center; font-size:11px; padding:2px 4px; white-space:nowrap; }
 .bz-match { background:#e8f5e9; }
 .bz-mismatch-red { background:#ffcdd2; font-weight:700; }
 .bz-mismatch-orange { background:#ffe0b2; font-weight:700; }
@@ -2454,6 +2454,16 @@ function mkEntry(emp) {
            shift_hours:storeHours, shift_slots:slots, shift_starts:{}, off_days:[], day_types:{} };
 }
 
+// 뷰티짱 사유 → 그리드 표시용 2글자 라벨. 부분금지는 봇이 이미 {휴무·휴가·연차·반차}로 걸러 옴.
+// 종일휴무는 사유 무관 전부 오므로, 온갖 라벨(담당자 휴무·기타·빈값·타지점·본사 등)을 정규화.
+const BZ_REASON_LABELS = { '휴무':'휴무','휴가':'휴가','연차':'연차','반차':'반차','교육':'교육','병가':'병가','타지점':'타점','본사':'본사' };
+function bzReasonLabel(reason, isFull) {
+  const r = (reason || '').trim();
+  if (BZ_REASON_LABELS[r]) return BZ_REASON_LABELS[r];
+  if (r.includes('휴무')) return '휴무';          // '담당자 휴무' 등
+  return isFull ? '휴무' : '반차';                // 기타·빈값·미지 사유 → 종일이면 휴무·부분이면 반차
+}
+
 async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   // schOffMap: {직원명: {full:Set('YYYY-MM-DD'), half:Set}} — 근무표 오프(레벨 분리, 비교 기준)
   const wrap = document.getElementById('bz-wrap');
@@ -2477,14 +2487,15 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
     for (const node of validNodes) {
       for (const [k, v] of Object.entries(node)) {
         if (k === '_syncedAt') continue;
-        // 신형 {off,half} / 구형 flat 배열(=전부 off) 모두 방어 해석
-        const rec = Array.isArray(v) ? { off: v, half: [] }
-                                     : { off: (v && v.off) || [], half: (v && v.half) || [] };
+        // 신형 {off,half,reasons} / 구형 flat 배열(=전부 off, 사유 없음) 모두 방어 해석
+        const rec = Array.isArray(v) ? { off: v, half: [], reasons: {} }
+                                     : { off: (v && v.off) || [], half: (v && v.half) || [], reasons: (v && v.reasons) || {} };
         if (!data[k]) {
-          data[k] = { off: new Set(rec.off), half: new Set(rec.half) };
+          data[k] = { off: new Set(rec.off), half: new Set(rec.half), reasons: { ...rec.reasons } };
         } else {
           rec.off.forEach(d => data[k].off.add(d));
           rec.half.forEach(d => data[k].half.add(d));
+          Object.assign(data[k].reasons, rec.reasons);
         }
       }
     }
@@ -2512,17 +2523,17 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   const orderedNames = [...[...schNames].filter(n => data[n]),
                         ...bzRealNames.filter(n => !schNames.has(n))];
   for (const name of orderedNames) {
-    const bzOff = data[name].off, bzHalf = data[name].half;   // Sets
+    const bzOff = data[name].off, bzHalf = data[name].half, bzReasons = data[name].reasons || {};
     const matched = schNames.has(name);
     const schRec = schOffMap[name] || null;                    // {full:Set, half:Set} | null
     body += `<tr><td>${name}${matched ? '' : ' <span style="color:#999">(미매칭)</span>'}</td>`;
     for (let d = 1; d <= days; d++) {
       const key = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       // 얼추 비슷하면 매칭: 종일/반차 구분 없이 '둘 다 쉼'이면 일치, 한쪽만 쉼이면 불일치.
-      // (봇이 사유필터로 half=진짜 반차/부재만 남기므로 반차를 판정에 넣어도 노이즈 없음.)
       const bzFull = bzOff.has(key), bzPartial = !bzFull && bzHalf.has(key);
       const bzAbsent = bzFull || bzPartial;
-      let cls = '', mark = bzFull ? '휴' : (bzPartial ? '반' : '');
+      // 마크 = 뷰티짱 사유 2글자 라벨(휴무/휴가/연차/반차/교육/병가 등). 없으면 종일→휴무·부분→반차.
+      let cls = '', mark = bzAbsent ? bzReasonLabel(bzReasons[key], bzFull) : '';
       if (matched) {
         const schAbsent = schRec ? (schRec.full.has(key) || schRec.half.has(key)) : false;  // 종일 or 반차
         if (schAbsent && !bzAbsent) { cls = 'bz-mismatch-orange'; mism++; if (!mark) mark = '·'; }
@@ -2535,7 +2546,7 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   }
   document.getElementById('bz-body').innerHTML = body;
   summary.innerHTML = `뷰티짱 대조: <b style="color:${mism?'#c00':'#080'}">${mism}건 불일치</b>`
-    + ` · <span style="font-size:11px;color:#888">휴=종일휴무 · 반=반차 · 🟠근무표는 쉼인데 뷰티짱 미반영 · 🔴뷰티짱은 쉼인데 근무표 근무 (종일·반차 구분없이 둘 다 쉼이면 일치)</span>`
+    + ` · <span style="font-size:11px;color:#888">칸=뷰티짱 사유(휴무·휴가·연차·반차·교육·병가) · 🟠근무표는 쉼인데 뷰티짱 미반영 · 🔴뷰티짱은 쉼인데 근무표 근무 (쉬는 날끼리 맞으면 일치)</span>`
     + ` · 마지막 동기화 ${data._syncedAt || '?'}`;
 }
 
