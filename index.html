@@ -2514,13 +2514,15 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
     body += `<tr><td>${name}${matched ? '' : ' <span style="color:#999">(미매칭)</span>'}</td>`;
     for (let d = 1; d <= days; d++) {
       const key = `${curY}-${String(curM).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const bzLv = bzOff.has(key) ? 2 : (bzHalf.has(key) ? 1 : 0);
-      let cls = '', mark = bzLv === 2 ? '휴' : (bzLv === 1 ? '반' : '');
+      // 반차(half=뷰티짱 부분금지)는 표시 전용 — 뷰티짱 부분금지는 반차가 아니라
+      // 매 근무일 붙는 일상 블록이라 신뢰할 반차 신호가 못 됨. 불일치 판정은 '종일 오프'만 비교.
+      const bzFull = bzOff.has(key), bzPartial = !bzFull && bzHalf.has(key);
+      let cls = '', mark = bzFull ? '휴' : (bzPartial ? '반' : '');
       if (matched) {
-        const schLv = schRec ? (schRec.full.has(key) ? 2 : (schRec.half.has(key) ? 1 : 0)) : 0;
-        if (bzLv < schLv) { cls = 'bz-mismatch-orange'; mism++; if (!mark) mark = '·'; }
-        else if (bzLv > schLv) { cls = 'bz-mismatch-red'; mism++; }
-        else if (bzLv > 0) { cls = 'bz-match'; }
+        const schFull = schRec ? schRec.full.has(key) : false;   // 휴무·연차·대휴·교육·휴직
+        if (schFull && !bzFull) { cls = 'bz-mismatch-orange'; mism++; if (!mark) mark = '·'; }
+        else if (!schFull && bzFull) { cls = 'bz-mismatch-red'; mism++; }
+        else if (schFull && bzFull) { cls = 'bz-match'; }
       }
       body += `<td class="${cls}">${mark}</td>`;
     }
@@ -2528,7 +2530,7 @@ async function buildBeautyzzangTable(branch, schOffMap, schNames) {
   }
   document.getElementById('bz-body').innerHTML = body;
   summary.innerHTML = `뷰티짱 대조: <b style="color:${mism?'#c00':'#080'}">${mism}건 불일치</b>`
-    + ` · <span style="font-size:11px;color:#888">휴=종일·반=부분 · 🟠근무표 오프 미반영 · 🔴뷰티짱 과다차단</span>`
+    + ` · <span style="font-size:11px;color:#888">휴=종일휴무 · 반=부분금지(참고, 대조제외) · 🟠근무표 오프인데 뷰티짱 미반영 · 🔴뷰티짱 종일차단인데 근무표 근무</span>`
     + ` · 마지막 동기화 ${data._syncedAt || '?'}`;
 }
 
