@@ -1163,6 +1163,7 @@ const _autoInitDone = new Set(); // 이미 확인/생성된 branch_Y_M 추적
 
 // 해당 월에 재직 중인 지점 직원 중 fb에 없는 신규 입사자를 계산해 반환
 async function calcMissingEmps(y, m, branch, fb) {
+  if (!fb || typeof fb !== 'object') return null; // 방어: FB_UNCHANGED(심볼) 등 비객체면 재생성 금지(수기데이터 소실 방지)
   const branchEmps = employees.filter(e => e.branch === branch);
   const missing = branchEmps.filter(emp => {
     const key = emp.branch + '||' + emp.name;
@@ -1203,6 +1204,7 @@ async function autoInitMissingMonths(branch) {
     if (_autoInitDone.has(key)) continue;
     try {
       const fb = await fbGetBranch(y, m, branch);
+      if (fb === FB_UNCHANGED) { _autoInitDone.add(key); continue; } // 304=데이터 존재·불변 → 재생성 금지(데이터 소실 방지)
       if (fb) {
         // 10시간 마이그레이션 적용
         const _mk = `${y}_${m}_${branch}`;
@@ -1268,6 +1270,7 @@ async function autoInitAllBranches() {
       if (_autoInitDone.has(key)) continue;
       try {
         const fb = await fbGetBranch(y, m, branch);
+        if (fb === FB_UNCHANGED) { _autoInitDone.add(key); continue; } // 304=데이터 존재·불변 → 재생성 금지(데이터 소실 방지)
         if (fb) {
           // 10시간 마이그레이션 적용
           const _mk2 = `${y}_${m}_${branch}`;
@@ -1296,8 +1299,8 @@ async function autoInitAllBranches() {
   }
   _allBranchInitRunning = false;
   if (generated > 0 && document.getElementById('view-schedule').classList.contains('active')) {
-    schData = await fbGetAll(curY, curM).catch(() => null) || {};
-    saveLs(curY, curM, schData);
+    const _all = await fbGetAll(curY, curM).catch(() => null);
+    if (_all !== FB_UNCHANGED) { schData = _all || {}; saveLs(curY, curM, schData); } // FB_UNCHANGED면 기존 schData 유지(심볼 오염 방지)
     buildTable();
     setStat(`전체 지점 근무표 자동 초기화 완료 (${generated}건) · ${new Date().toLocaleTimeString('ko-KR')}`);
   }
