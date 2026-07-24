@@ -594,23 +594,44 @@ def save_overflow(y, m, overflow_off):
         print(f"  ⚠ overflow {y}/{m:02d} 저장 실패: {e}")
         return False
 
+# ── 지점 조회 (비파괴 판정용) ────────────────────────────────────────
+def fb_get_branch(y, m, branch):
+    """지점 데이터 조회.
+    - 200 + 실제 데이터 → dict 반환
+    - 200 + null/빈값   → None (확인된 빈 지점)
+    - 그 외(HTTP 오류 등) → 예외 발생 (호출부에서 '쓰지 않고 건너뜀'으로 처리)
+    """
+    status, text = http_request(fb_branch_url(y, m, branch), method='GET')
+    if status != 200:
+        raise RuntimeError(f'조회 실패 HTTP {status}')
+    text = (text or '').strip()
+    if not text or text == 'null':
+        return None
+    return json.loads(text)
+
 # ── 단일 월 생성 및 업로드 ─────────────────────────────────────────
-def run_month(y, m, employees, branches, prev_overflow=None):
-    """특정 달 근무표 생성·업로드. overflow_off 반환."""
+def run_month(y, m, employees, branches, prev_overflow=None, destructive=False):
+    """특정 달 근무표 생성·업로드. overflow_off 반환.
+
+    destructive=False(기본, 스케줄 실행): 수기데이터 보존.
+      기존 지점은 절대 덮어쓰지 않고, 빈 지점만 생성 + 기존 지점엔 신규 입사자만 병합.
+    destructive=True(--rebuild 전용): 월 전체 삭제 후 재생성(로테이션 체인 재구축).
+    """
     if prev_overflow is None:
         prev_y, prev_m = (y, m-1) if m > 1 else (y-1, 12)
         print(f"  이전 overflow 로드 중 ({prev_y}/{prev_m:02d})...", end=' ')
         prev_overflow = load_overflow(prev_y, prev_m)
         print(f"{len(prev_overflow)}명" if prev_overflow else "없음 (초기값 사용)")
 
-    print(f"\n━━ {y}년 {m}월 근무표 생성 ━━")
+    print(f"\n━━ {y}년 {m}월 근무표 {'재구축(파괴)' if destructive else '생성(비파괴)'} ━━")
 
-    # 기존 데이터 삭제
-    try:
-        status, _ = http_request(fb_month_url(y, m), method='DELETE')
-        print(f"  기존 데이터 삭제 → HTTP {status}")
-    except Exception as e:
-        print(f"  삭제 실패: {e}")
+    if destructive:
+        # 명시적 재구축 시에만 월 전체 삭제
+        try:
+            status, _ = http_request(fb_month_url(y, m), method='DELETE')
+            print(f"  [재구축] 기존 데이터 삭제 → HTTP {status}")
+        except Exception as e:
+            print(f"  삭제 실패: {e}")
 
     all_data, overflow_off = build_month_schedule(employees, y, m, prev_overflow)
 
@@ -624,21 +645,42 @@ def run_month(y, m, employees, branches, prev_overflow=None):
         if isinstance(entry, dict) and 'branch' in entry:
             by_branch.setdefault(entry['branch'], {})[safe_key] = entry
 
-    ok = err = skip = 0
+    ok = err = skip = add = 0
     for branch in branches:
         if branch not in by_branch:
             skip += 1; continue
         url = fb_branch_url(y, m, branch)
+        fresh = by_branch[branch]
         try:
-            status, _ = http_request(url, method='PUT', data=by_branch[branch])
+            if not destructive:
+                existing = fb_get_branch(y, m, branch)  # 오류 시 예외 → 아래 except에서 안전하게 건너뜀
+                if existing:
+                    # 기존 지점: 수기데이터 절대 보존. 이름 기준으로 신규 입사자만 병합.
+                    existing_names = set(v.get('name') for v in existing.values()
+                                         if isinstance(v, dict) and v.get('name'))
+                    missing = {k: v for k, v in fresh.items()
+                               if isinstance(v, dict) and v.get('name') not in existing_names}
+                    if missing:
+                        merged = {**existing, **missing}
+                        http_request(url, method='PUT', data=merged)
+                        print(f"  {branch}: 신규 {len(missing)}명 추가 ✓ (기존 {len(existing)}명 보존)")
+                        add += 1
+                    else:
+                        print(f"  {branch}: 이미 존재, 건너뜀 (보존)")
+                        skip += 1
+                    continue
+                # existing is None → 확인된 빈 지점 → 아래에서 생성
+            # destructive 또는 빈 지점 → 신규 생성
+            status, _ = http_request(url, method='PUT', data=fresh)
             mark = '✓' if status == 200 else f'HTTP{status}'
-            print(f"  {branch}: {mark} ({len(by_branch[branch])}명)")
+            print(f"  {branch}: 생성 {mark} ({len(fresh)}명)")
             ok += 1
         except Exception as e:
-            print(f"  {branch}: 오류 — {e}")
+            # 조회/쓰기 오류 시 절대 덮어쓰지 않고 건너뜀 (데이터 보호 최우선)
+            print(f"  {branch}: 오류 — {e} (건너뜀, 덮어쓰기 안 함)")
             err += 1
 
-    print(f"  → 완료 {ok}개 / 오류 {err}개 / 스킵 {skip}개")
+    print(f"  → 생성 {ok} / 신규추가 {add} / 건너뜀 {skip} / 오류 {err}")
     return overflow_off
 
 # ── 메인 ─────────────────────────────────────────────────────────────
@@ -668,7 +710,7 @@ def main():
         y, m = start_y, start_m
         prev_overflow = None
         while (y, m) <= (end_y, end_m):
-            overflow_off = run_month(y, m, employees, branches, prev_overflow)
+            overflow_off = run_month(y, m, employees, branches, prev_overflow, destructive=True)
             prev_overflow = {k: {**v, 'off_days': set(v['off_days'])} for k, v in overflow_off.items()}
             m += 1
             if m > 12: y += 1; m = 1

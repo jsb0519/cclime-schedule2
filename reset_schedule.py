@@ -1,4 +1,7 @@
 """
+⚠️ 위험 스크립트 — 7·8월 외 모든 달을 삭제하고 7·8월을 재생성한다(수기데이터 소실).
+자동 실행 금지. 실행하려면 환경변수 CONFIRM_RESET=YES-DELETE-AND-REGENERATE 를 명시해야 한다.
+
 6월 이전 Firebase 스케줄 삭제 후 7월·8월 재생성.
 7월은 1~5일(화~일) 전체 출근, 6일(월요일)부터 자동 휴무 배정.
 """
@@ -38,6 +41,14 @@ def write_month(y, m, employees, sched_start_day=1):
         print(f'  {branch}: {cnt}명 작성 완료')
 
 def main():
+    # 0. 안전장치 — 실수 실행 방지. 명시적 동의 환경변수 없으면 아무것도 안 함.
+    if os.environ.get('CONFIRM_RESET') != 'YES-DELETE-AND-REGENERATE':
+        print('⛔ 안전장치 작동: 이 스크립트는 7·8월 외 모든 달을 삭제하고 7·8월을 재생성합니다.')
+        print('   (수기 입력한 근무표가 소실될 수 있습니다.)')
+        print('   정말 실행하려면:')
+        print('   CONFIRM_RESET=YES-DELETE-AND-REGENERATE python3 reset_schedule.py')
+        sys.exit(1)
+
     # 1. 기존 달 목록 조회
     print('=== Firebase 스케줄 목록 조회 ===')
     months = list_schedule_months()
