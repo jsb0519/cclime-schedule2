@@ -921,8 +921,13 @@ function syncEmpMeta() {
   //   폴링이 붙은 뒤(schData가 서버 최신으로 갱신된 뒤) 폴링 경로에서 다시 호출된다.
   if (!fbListenerAttached) return;
   if (!employees.length || !schData || !Object.keys(schData).filter(k => !k.startsWith('__')).length) return;
+  // 지점 뷰에서는 폴링이 '선택 지점'만 서버 최신으로 갱신하고 나머지 지점은 stale localStorage로 남는다.
+  // → 최신이 확인된 지점만 처리·기록한다. (전체 지점 뷰에서는 selBranch='' 이라 모든 지점이 최신)
+  //   이 가드가 없으면 비선택 지점을 stale 데이터로 덮어써 타 기기의 off_days/day_types를 잃을 수 있다.
+  const selBranch = document.getElementById('branch-sel').value;
   const changed = new Set();
   employees.forEach(emp => {
+    if (selBranch && emp.branch !== selBranch) return;
     const key = emp.branch + '||' + emp.name;
     const sd = schData[key];
     if (!sd) return;

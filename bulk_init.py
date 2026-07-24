@@ -700,8 +700,15 @@ def main():
     )
     print(f"  → {len(employees)}명 / {len(branches)}개 지점 로드됨")
 
-    # --rebuild [start_y start_m [end_y end_m]]: 지정 달부터 체인 재구축
+    # --rebuild [start_y start_m [end_y end_m]]: 지정 달부터 체인 재구축 (파괴적: 달 통째 삭제 후 재생성)
     if args and args[0] == '--rebuild':
+        import os
+        if os.environ.get('CONFIRM_REBUILD') != 'YES-DELETE-AND-REGENERATE':
+            print('⛔ 안전장치: --rebuild는 지정 범위의 달을 통째로 삭제 후 재생성합니다.')
+            print('   (해당 월의 수기 입력 근무표가 소실됩니다.)')
+            print('   정말 실행하려면:')
+            print('   CONFIRM_REBUILD=YES-DELETE-AND-REGENERATE python3 bulk_init.py --rebuild ...')
+            sys.exit(1)
         start_y = int(args[1]) if len(args) > 1 else 2026
         start_m = int(args[2]) if len(args) > 2 else 7
         end_y   = int(args[3]) if len(args) > 3 else now.year
