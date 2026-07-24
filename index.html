@@ -916,6 +916,10 @@ function loadEmployees() {
 /* belt·work_type·exit_date 변경을 schData에 반영하고 Firebase에 저장
    — onEmployeeData와 Firebase 폴링 양쪽에서 호출해 타이밍 문제 해소 */
 function syncEmpMeta() {
+  // 첫 Firebase 폴링(현재 서버 상태 확인) 전에는 절대 쓰지 않는다.
+  // — 페이지 로드 직후 schData는 stale localStorage일 수 있어, 이때 쓰면 옛 데이터로 덮어쓸 위험.
+  //   폴링이 붙은 뒤(schData가 서버 최신으로 갱신된 뒤) 폴링 경로에서 다시 호출된다.
+  if (!fbListenerAttached) return;
   if (!employees.length || !schData || !Object.keys(schData).filter(k => !k.startsWith('__')).length) return;
   const changed = new Set();
   employees.forEach(emp => {
