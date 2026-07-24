@@ -2713,7 +2713,19 @@ function buildTable() {
 }
 
 /* ── Day Status Modal ── */
+/* 첫 Firebase 동기화(현재 서버 상태 확보) 전에는 편집을 막는다.
+   — 로드 직후 화면은 stale localStorage일 수 있어, 그 상태로 편집·저장하면
+     다른 기기의 최신 편집을 덮어쓸 수 있음. 서버 최신을 받은 뒤에만 편집 허용. */
+function editReady() {
+  if (!fbListenerAttached) {
+    alert('⏳ 서버와 동기화 중입니다.\n1~2초 후 다시 시도해주세요.\n(동기화 전 편집을 막아 데이터를 보호합니다)');
+    return false;
+  }
+  return true;
+}
+
 function openDayModal(key, day) {
+  if (!editReady()) return;
   dmKey = key; dmDay = day;
   const sd  = schData[key] || {};
   const emp = employees.find(e => e.branch+'||'+e.name === key) || {};
@@ -2845,6 +2857,7 @@ function closeDayModal() {
 
 /* ── Shift Modal ── */
 function openModal(key) {
+  if (!editReady()) return;
   editKey = key;
   const sd  = schData[key] || {};
   const emp = employees.find(e => e.branch+'||'+e.name === key) || {};
